@@ -50,5 +50,13 @@ tmp_app_patch/
 .env.*
 secrets/
 **/secrets/
-*secret*
-*token*
+*.secret
+*.secrets
+*.token
+*.tokens
+*.pem
+*.key
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519

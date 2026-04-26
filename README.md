@@ -83,6 +83,7 @@ tool_timeout_sec = 120
 - [Project Onboarding](docs/PROJECT_ONBOARDING.md)
 - [Security And Privacy](docs/SECURITY_AND_PRIVACY.md)
 - [Attribution](docs/ATTRIBUTION.md)
+- [Release Checklist](docs/RELEASE_CHECKLIST.md)
 - [Roadmap](docs/ROADMAP.md)
 
 ## Current Implementation Status

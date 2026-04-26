@@ -24,17 +24,17 @@ projects one workspace.
 From `C:\codex-ops-hub\codex-hermes-supervisor`:
 
 ```powershell
-.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli project-git-ensure --repo <project-root> --dry-run
-.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli install-project --repo <project-root> --dry-run
-.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli project-memory-bootstrap --repo <project-root> --dry-run
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli project-git-ensure --repo "[project-root]" --dry-run
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli install-project --repo "[project-root]" --dry-run
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli project-memory-bootstrap --repo "[project-root]" --dry-run
 ```
 
 Apply after review:
 
 ```powershell
-.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli project-git-ensure --repo <project-root>
-.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli install-project --repo <project-root>
-.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli project-memory-bootstrap --repo <project-root>
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli project-git-ensure --repo "[project-root]"
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli install-project --repo "[project-root]"
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli project-memory-bootstrap --repo "[project-root]"
 ```
 
 ## Empty Project Behavior
@@ -42,9 +42,9 @@ Apply after review:
 If no project memory exists yet, create:
 
 ```text
-CodexWiki/Projects/<project_id>/status.md
-CodexWiki/Projects/<project_id>/overview.md
-CodexWiki/Tasks/<project_id>/log.md
+CodexWiki/Projects/[project-id]/status.md
+CodexWiki/Projects/[project-id]/overview.md
+CodexWiki/Tasks/[project-id]/log.md
 CodexWiki/Sources/_manifest.md
 ```
 

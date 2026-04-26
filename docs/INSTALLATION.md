@@ -12,9 +12,22 @@ Audience: Windows operator installing Codex Ops Hub with the official Codex App.
 
 ## Clone
 
+Release source pin:
+
+- Repository: `https://github.com/blastridskogr/codex-ops-hub.git`
+- Required ref for first public handoff: `codex-ops-hub-v0.1.0`
+- Supervisor package path: `codex-hermes-supervisor`
+
 ```powershell
 git clone https://github.com/blastridskogr/codex-ops-hub.git C:\codex-ops-hub
 cd C:\codex-ops-hub\codex-hermes-supervisor
+```
+
+For reproducible handoff installs, check out the release tag after cloning:
+
+```powershell
+git fetch --tags
+git checkout codex-ops-hub-v0.1.0
 ```
 
 ## Create A Pinned Python Environment
@@ -65,6 +78,10 @@ tool_timeout_sec = 120
 
 Do not paste `<repo-root>` literally. Replace it with the absolute checkout path
 on the target machine. Forward slashes are recommended in TOML strings.
+
+`tool_timeout_sec = 120` gives cold QMD/vector-backed memory lookup enough room
+on slower machines. Repeated timeouts are still an issue to diagnose; this value
+is not a substitute for fixing slow search paths.
 
 ## Install Global Rules, Skills, And Agents
 
