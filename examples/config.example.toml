@@ -1,0 +1,15 @@
+﻿# Example user-level Codex config snippet.
+# Copy the relevant section into %USERPROFILE%\.codex\config.toml and adjust
+# the Python path for your machine.
+
+[mcp_servers.codex_hermes_supervisor]
+command = "C:/codex-ops-hub/codex-hermes-supervisor/.venv/Scripts/python.exe"
+args = ["-m", "codex_hermes_supervisor.mcp_server", "--profile", "coder"]
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+
+[features]
+multi_agent = true
+memories = false

@@ -1,0 +1,6 @@
+﻿# Project-local Codex config template.
+# Place as <project-root>\.codex\config.toml only when project-specific
+# overrides are required. Do not weaken global safety or finish-gate rules.
+
+[project]
+name = "<project-name>"

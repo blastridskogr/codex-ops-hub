@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+dist/
+build/
+
+# Node/local tooling
+node_modules/
+
+# Codex / local state
+.codex/
+.codex-hermes/
+state/
+sessions/
+task_records/
+hermes_outbox/
+
+# Obsidian local state and private vault content
+.obsidian/workspace*
+.obsidian/cache*
+ObsidianVault/
+CodexWiki/private/
+
+# Raw/private source stores
+raw/
+data/raw/
+incoming/
+attachments/
+screenshots/
+*.pdf
+*.xlsx
+*.xls
+*.pptx
+*.zip
+*.7z
+
+# Local logs and temporary app artifacts
+*.log
+audit.log
+tmp/
+work/
+tmp_app_asar_extract/
+tmp_app_patch/
+
+# Secrets
+.env
+.env.*
+secrets/
+**/secrets/
+*secret*
+*token*
