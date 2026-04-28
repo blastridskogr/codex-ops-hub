@@ -52,6 +52,9 @@ local-file only and records provenance metadata before any compiled wiki write:
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-compile --repo "[project-root]" --source-id "[source-id]" --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-ingest --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-ingest --apply
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-compile --dry-run
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-compile --apply
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli qmd-sync --embed --timeout-seconds 300
 ```
 
 Current limits:
@@ -62,10 +65,16 @@ Current limits:
   `conversation` raw sources grouped by session `cwd`.
 - Codex session ingest does not copy raw transcript text into Hermes or
   Obsidian notes.
+- Codex session compile writes provenance-only Obsidian source notes under
+  `Sources/[project-id]/` and conversation indexes. These notes remain
+  `reference_only` until reviewed and promoted.
 - Heavy PDF/DOCX/XLSX/PPTX/image/web/archive ingest is not active.
-- `source-compile --apply` is intentionally blocked until compile templates,
-  review gates, and governance checks are promoted.
+- `source-compile --apply` is active for lightweight provenance-only source
+  notes. It does not summarize or copy raw private content.
 - Private/customer/secret/restricted sources must be reviewed before compile.
+- Large Obsidian note batches can require a longer QMD embed timeout. Use
+  `qmd-sync --embed --timeout-seconds [seconds]` for batch refresh; this does
+  not change the bounded `memory_lookup` budget.
 
 ## Evidence Rules
 

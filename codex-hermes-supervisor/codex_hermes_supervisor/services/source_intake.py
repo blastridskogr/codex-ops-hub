@@ -16,6 +16,8 @@ from codex_hermes_supervisor.core.identity import build_identity, normalize_wind
 from codex_hermes_supervisor.core.locks import now_local_iso
 from codex_hermes_supervisor.core.paths import supervisor_projects_root, user_home
 from codex_hermes_supervisor.schemas.project_memory import (
+    CodexSessionCompileProjectSummary,
+    CodexSessionCompileReport,
     CodexSessionIngestProjectSummary,
     CodexSessionIngestReport,
     ReviewStatus,
@@ -339,6 +341,136 @@ def source_status(repo_root: Path) -> SourceStatusReport:
     )
 
 
+def _obsidian_wiki_root(config: SupervisorConfig) -> Path | None:
+    if config.obsidian_root is None:
+        return None
+    return config.obsidian_root / config.obsidian.wiki_root
+
+
+def _source_note_path(config: SupervisorConfig, project_id: str, source_id: str) -> Path | None:
+    wiki_root = _obsidian_wiki_root(config)
+    if wiki_root is None:
+        return None
+    return wiki_root / "Sources" / project_id / f"{source_id}.md"
+
+
+def _source_note_frontmatter(entry: SourceManifestEntry, *, project_id: str, workspace_id: str | None, repo_root: str | None) -> SourceNoteFrontmatter:
+    return SourceNoteFrontmatter(
+        title=f"Source: {entry.source_title or entry.original_name or entry.source_id}",
+        scope=entry.scope,
+        project_id=project_id if entry.scope == "project" else entry.project_id,
+        workspace_id=workspace_id,
+        repo_root=repo_root,
+        memory_kind="source",
+        status="draft",
+        review_status="unverified" if entry.review_status in {"pending", "not_required"} else ("rejected" if entry.review_status == "rejected" else "reviewed"),
+        confidence="low" if entry.review_status == "pending" else "medium",
+        evidence_class="reference_only",
+        source_type=entry.source_type,
+        privacy=entry.privacy,
+        source_id=entry.source_id,
+        raw_storage_uri=entry.raw_storage_uri or entry.source_uri,
+        size_bytes=entry.size_bytes,
+        source_refs=[entry.source_uri],
+        source_hashes=[entry.sha256],
+        compiled_from=[entry.source_id],
+        tags=["official-llm-wiki", "source-intake", f"source-type-{entry.source_type}"],
+    )
+
+
+def _yaml_frontmatter(frontmatter: SourceNoteFrontmatter) -> str:
+    payload = frontmatter.model_dump(mode="python", exclude_none=True)
+    return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True).strip()
+
+
+def _source_note_body(entry: SourceManifestEntry, frontmatter: SourceNoteFrontmatter) -> str:
+    title = frontmatter.title
+    return (
+        f"---\n{_yaml_frontmatter(frontmatter)}\n---\n\n"
+        f"# {title}\n\n"
+        "This is an Official LLM Wiki compiled source note. It records source\n"
+        "provenance only and does not copy raw source content.\n\n"
+        "## Source State\n\n"
+        f"- source_id: `{entry.source_id}`\n"
+        f"- source_type: `{entry.source_type}`\n"
+        f"- privacy: `{entry.privacy}`\n"
+        f"- review_status: `{entry.review_status}`\n"
+        f"- lifecycle_status: `{entry.status}`\n"
+        f"- evidence_class: `reference_only`\n"
+        f"- sha256: `{entry.sha256}`\n"
+        f"- size_bytes: `{entry.size_bytes}`\n\n"
+        "## Source Reference\n\n"
+        f"- source_uri: `{entry.source_uri}`\n"
+        f"- raw_storage_uri: `{entry.raw_storage_uri or entry.source_uri}`\n"
+        f"- repo_root: `{entry.repo_root or ''}`\n"
+        f"- source_scope_reason: {entry.source_scope_reason or 'not recorded'}\n\n"
+        "## Use Rule\n\n"
+        "Treat this note as `reference_only` until the source is reviewed and a\n"
+        "Task, Decision, Bug, Workflow, Status, or reviewed Source note is compiled\n"
+        "from it. Do not cite the raw transcript or raw source as current-task\n"
+        "evidence.\n"
+    )
+
+
+def _write_source_note(config: SupervisorConfig, entry: SourceManifestEntry, *, project_id: str, workspace_id: str | None, repo_root: str | None) -> Path | None:
+    note_path = _source_note_path(config, project_id, entry.source_id)
+    if note_path is None:
+        return None
+    note_path.parent.mkdir(parents=True, exist_ok=True)
+    frontmatter = _source_note_frontmatter(entry, project_id=project_id, workspace_id=workspace_id, repo_root=repo_root)
+    atomic_write_text(note_path, _source_note_body(entry, frontmatter))
+    return note_path
+
+
+def _conversation_index_path(config: SupervisorConfig, project_id: str) -> Path | None:
+    wiki_root = _obsidian_wiki_root(config)
+    if wiki_root is None:
+        return None
+    return wiki_root / "Sources" / project_id / "conversation-index.md"
+
+
+def _write_conversation_index(config: SupervisorConfig, *, project_id: str, workspace_id: str | None, repo_root: str | None, entries: list[SourceManifestEntry]) -> Path | None:
+    index_path = _conversation_index_path(config, project_id)
+    if index_path is None:
+        return None
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    rows = [
+        "| source_id | title | review | status | bytes | source |",
+        "| --- | --- | --- | --- | ---: | --- |",
+    ]
+    for entry in sorted(entries, key=lambda item: (item.source_published_at or "", item.source_id)):
+        title = (entry.source_title or entry.original_name or entry.source_id).replace("|", "\\|")
+        source_name = (entry.original_name or Path(entry.source_uri).name).replace("|", "\\|")
+        source_link = f"[`{entry.source_id}`](./{entry.source_id}.md)"
+        rows.append(
+            f"| {source_link} | {title} | `{entry.review_status}` | `{entry.status}` | {entry.size_bytes} | `{source_name}` |"
+        )
+    frontmatter = {
+        "title": "Conversation Source Index",
+        "scope": "project",
+        "project_id": project_id,
+        "workspace_id": workspace_id,
+        "repo_root": repo_root,
+        "memory_kind": "source",
+        "status": "current",
+        "review_status": "reviewed",
+        "confidence": "high",
+        "evidence_class": "operational_entrypoint",
+        "source_type": "conversation",
+        "updated": now_local_iso(),
+    }
+    body = (
+        f"---\n{yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True).strip()}\n---\n\n"
+        "# Conversation Source Index\n\n"
+        "This index lists Codex session transcript source notes for the project.\n"
+        "Rows are source references, not verified project facts.\n\n"
+        + "\n".join(rows)
+        + "\n"
+    )
+    atomic_write_text(index_path, body)
+    return index_path
+
+
 def source_ingest(
     repo_root: Path,
     source_path: Path,
@@ -459,7 +591,7 @@ def source_compile(
     found = _find_entry(manifest, source_id)
     if found is None:
         raise KeyError(f"Source id not found in source manifest: {source_id}")
-    _, entry = found
+    index, entry = found
     warnings: list[str] = []
     review_required = entry.privacy in _REVIEW_REQUIRED_PRIVACY
     if review_required and entry.review_status != "reviewed":
@@ -468,36 +600,144 @@ def source_compile(
         warnings.append("SOURCE_STATUS_BLOCKS_COMPILE")
     if entry.source_type not in _LIGHTWEIGHT_SOURCE_TYPES:
         warnings.append("SOURCE_TYPE_COMPILE_NOT_IMPLEMENTED_FOR_HEAVY_PHASE")
-    if not dry_run:
-        warnings.append("SOURCE_COMPILE_APPLY_NOT_IMPLEMENTED")
-
     planned_note_path: str | None = None
-    if config.obsidian_root is not None:
-        planned_note_path = normalize_windows_path(
-            config.obsidian_root / config.obsidian.wiki_root / "Sources" / identity.project_id / f"{entry.source_id}.md"
-        )
-    frontmatter = SourceNoteFrontmatter(
-        title=f"Source: {entry.source_title or entry.original_name or entry.source_id}",
-        scope="project",
+    note_path = _source_note_path(config, identity.project_id, entry.source_id)
+    if note_path is not None:
+        planned_note_path = normalize_windows_path(note_path)
+    frontmatter = _source_note_frontmatter(
+        entry,
         project_id=identity.project_id,
         workspace_id=identity.workspace_id,
         repo_root=identity.repo_root,
-        memory_kind="source",
-        status="draft",
-        confidence="medium",
-        source_refs=[entry.source_uri],
-        source_hashes=[entry.sha256],
-        compiled_from=[entry.source_id],
-        tags=["official-llm-wiki", "source-intake"],
     )
+    compiled = False
+    if not dry_run and note_path is not None and "SOURCE_STATUS_BLOCKS_COMPILE" not in warnings and "SOURCE_TYPE_COMPILE_NOT_IMPLEMENTED_FOR_HEAVY_PHASE" not in warnings:
+        written = _write_source_note(config, entry, project_id=identity.project_id, workspace_id=identity.workspace_id, repo_root=identity.repo_root)
+        if written is not None:
+            note_ref = normalize_windows_path(written)
+            compiled_into = list(dict.fromkeys([*entry.compiled_into, note_ref]))
+            manifest.entries[index] = entry.model_copy(update={"compiled_into": compiled_into, "status": "compiled"})
+            _save_source_manifest(identity.project_id, manifest)
+            compiled = True
     return SourceCompileResult(
         project_id=identity.project_id,
         workspace_id=identity.workspace_id,
         repo_root=identity.repo_root,
         manifest_path=normalize_windows_path(_source_manifest_path(identity.project_id)),
         dry_run=dry_run,
-        compiled=False,
+        compiled=compiled,
         planned_note_path=planned_note_path,
         frontmatter=frontmatter,
+        warnings=warnings,
+    )
+
+
+def codex_session_compile(
+    config: SupervisorConfig,
+    *,
+    project_id: str | None = None,
+    dry_run: bool = True,
+    limit: int | None = None,
+    force: bool = False,
+) -> CodexSessionCompileReport:
+    """Create Obsidian source notes for registered Codex conversation sources."""
+
+    scanned = 0
+    planned = 0
+    compiled = 0
+    skipped = 0
+    warnings: list[str] = []
+    summaries: dict[str, dict[str, object]] = {}
+    remaining = limit
+    manifest_paths = sorted(supervisor_projects_root().glob("*/source_manifest.yaml"))
+    for manifest_path in manifest_paths:
+        current_project_id = manifest_path.parent.name
+        if project_id and current_project_id != project_id:
+            continue
+        manifest = _load_source_manifest(current_project_id)
+        changed = False
+        conversation_entries = [entry for entry in manifest.entries if entry.source_type == "conversation"]
+        if not conversation_entries:
+            continue
+        project_entries_for_index: list[SourceManifestEntry] = []
+        for index, entry in enumerate(conversation_entries):
+            if remaining is not None and remaining <= 0:
+                break
+            scanned += 1
+            summary = summaries.setdefault(
+                current_project_id,
+                {
+                    "project_id": current_project_id,
+                    "workspace_id": entry.workspace_id,
+                    "repo_root": entry.repo_root,
+                    "scanned": 0,
+                    "planned": 0,
+                    "compiled": 0,
+                    "skipped": 0,
+                    "index_path": normalize_windows_path(_conversation_index_path(config, current_project_id)) if _conversation_index_path(config, current_project_id) else None,
+                },
+            )
+            summary["scanned"] = int(summary["scanned"]) + 1
+            note_path = _source_note_path(config, current_project_id, entry.source_id)
+            note_ref = normalize_windows_path(note_path) if note_path else None
+            already_compiled = bool(note_ref and note_ref in entry.compiled_into and note_path and note_path.exists())
+            if already_compiled and not force:
+                skipped += 1
+                summary["skipped"] = int(summary["skipped"]) + 1
+                project_entries_for_index.append(entry)
+                if remaining is not None:
+                    remaining -= 1
+                continue
+            planned += 1
+            summary["planned"] = int(summary["planned"]) + 1
+            project_entries_for_index.append(entry)
+            if not dry_run and note_path is not None:
+                written = _write_source_note(
+                    config,
+                    entry,
+                    project_id=current_project_id,
+                    workspace_id=entry.workspace_id,
+                    repo_root=entry.repo_root,
+                )
+                if written is not None:
+                    written_ref = normalize_windows_path(written)
+                    compiled_into = list(dict.fromkeys([*entry.compiled_into, written_ref]))
+                    manifest_index = next((i for i, item in enumerate(manifest.entries) if item.source_id == entry.source_id), None)
+                    if manifest_index is not None:
+                        manifest.entries[manifest_index] = entry.model_copy(update={"compiled_into": compiled_into, "status": "compiled"})
+                        project_entries_for_index[-1] = manifest.entries[manifest_index]
+                        changed = True
+                    compiled += 1
+                    summary["compiled"] = int(summary["compiled"]) + 1
+            if remaining is not None:
+                remaining -= 1
+        if not dry_run:
+            if project_entries_for_index:
+                index_path = _write_conversation_index(
+                    config,
+                    project_id=current_project_id,
+                    workspace_id=str(summaries[current_project_id].get("workspace_id") or ""),
+                    repo_root=str(summaries[current_project_id].get("repo_root") or ""),
+                    entries=project_entries_for_index if limit is not None else conversation_entries,
+                )
+                if index_path is None:
+                    warnings.append(f"CODEX_SESSION_COMPILE_NO_OBSIDIAN_ROOT: {current_project_id}")
+            if changed:
+                _save_source_manifest(current_project_id, manifest)
+        if remaining is not None and remaining <= 0:
+            break
+
+    project_summaries = [
+        CodexSessionCompileProjectSummary.model_validate(summary)
+        for summary in sorted(summaries.values(), key=lambda item: str(item["project_id"]))
+    ]
+    return CodexSessionCompileReport(
+        dry_run=dry_run,
+        project_id=project_id,
+        scanned_sources=scanned,
+        planned=planned,
+        compiled=compiled,
+        skipped=skipped,
+        project_summaries=project_summaries,
         warnings=warnings,
     )

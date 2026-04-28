@@ -712,6 +712,17 @@ def test_qmd_sync_honors_command_prefix(tmp_path: Path) -> None:
     assert "search hello --json" in completed.stdout
 
 
+def test_qmd_path_resolver_tolerates_stripped_trailing_hyphen(tmp_path: Path) -> None:
+    from codex_hermes_supervisor.integrations.qmd import _resolve_qmd_path_object
+
+    note = tmp_path / "vault" / "Sources" / "project" / "conv-019d6f9f-5a26-73d0-9880-.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("# source\n", encoding="utf-8")
+    stripped = note.with_name("conv-019d6f9f-5a26-73d0-9880.md")
+
+    assert _resolve_qmd_path_object(str(stripped), {}) == note.resolve()
+
+
 def test_memory_lookup_auto_uses_fast_keyword_path(tmp_path: Path, monkeypatch) -> None:
     home = tmp_path / "home"
     home.mkdir()

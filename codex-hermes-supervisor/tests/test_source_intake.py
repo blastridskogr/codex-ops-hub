@@ -6,6 +6,7 @@ from pathlib import Path
 
 from codex_hermes_supervisor.core.config import SupervisorConfig
 from codex_hermes_supervisor.services.source_intake import (
+    codex_session_compile,
     codex_session_ingest,
     source_compile,
     source_ingest,
@@ -100,6 +101,27 @@ def test_source_review_apply_allows_compile_plan(tmp_path: Path, monkeypatch) ->
     assert "SOURCE_REVIEW_REQUIRED_BEFORE_COMPILE" not in result.warnings
 
 
+def test_source_compile_apply_writes_reference_only_source_note(tmp_path: Path, monkeypatch) -> None:
+    _patch_home(tmp_path, monkeypatch)
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+    ingest = source_ingest(repo, Path("README.md"), privacy="private", dry_run=False)
+
+    result = source_compile(config, repo, ingest.entry.source_id, dry_run=False)
+    status = source_status(repo)
+
+    assert result.compiled is True
+    assert result.planned_note_path is not None
+    note_path = Path(result.planned_note_path)
+    assert note_path.exists()
+    text = note_path.read_text(encoding="utf-8")
+    assert "evidence_class: reference_only" in text
+    assert "review_status: unverified" in text
+    assert "This is an Official LLM Wiki compiled source note." in text
+    assert "A source-intake sample" not in text
+    assert status.compiled == 1
+
+
 def test_source_compile_frontmatter_keeps_evidence_allowed_runtime_only(tmp_path: Path, monkeypatch) -> None:
     _patch_home(tmp_path, monkeypatch)
     repo = _init_repo(tmp_path)
@@ -186,3 +208,46 @@ def test_codex_session_ingest_skips_backups_by_default(tmp_path: Path, monkeypat
 
     assert result.scanned_files == 0
     assert result.created == 0
+
+
+def test_codex_session_compile_writes_conversation_source_notes(tmp_path: Path, monkeypatch) -> None:
+    _patch_home(tmp_path, monkeypatch)
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+    codex_home = tmp_path / ".codex"
+    session_dir = codex_home / "sessions" / "2026" / "04" / "29"
+    session_dir.mkdir(parents=True)
+    session_id = "019dd5b6-32f6-79d1-b8eb-6c6da0cd690c"
+    session_path = session_dir / f"rollout-2026-04-29T05-09-40-{session_id}.jsonl"
+    session_path.write_text(
+        json.dumps(
+            {
+                "timestamp": "2026-04-29T00:00:00Z",
+                "type": "session_meta",
+                "payload": {"id": session_id, "timestamp": "2026-04-29T00:00:00Z", "cwd": str(repo)},
+            }
+        )
+        + "\n"
+        + json.dumps({"type": "message", "payload": {"role": "user", "content": "raw transcript text should not be copied"}})
+        + "\n",
+        encoding="utf-8",
+    )
+    codex_session_ingest(codex_home=codex_home, dry_run=False)
+    project_id = source_status(repo).project_id
+
+    result = codex_session_compile(config, project_id=project_id, dry_run=False)
+    status = source_status(repo)
+    note_dir = Path(config.obsidian.vault_root) / config.obsidian.wiki_root / "Sources" / project_id
+
+    assert result.compiled == 1
+    assert status.compiled == 1
+    index_text = (note_dir / "conversation-index.md").read_text(encoding="utf-8")
+    assert f"](.//" not in index_text
+    notes = [path for path in note_dir.glob("conv-*.md")]
+    assert len(notes) == 1
+    assert f"[`{notes[0].stem}`](./{notes[0].name})" in index_text
+    note_text = notes[0].read_text(encoding="utf-8")
+    assert "source_type: conversation" in note_text
+    assert "privacy: private" in note_text
+    assert "evidence_class: reference_only" in note_text
+    assert "raw transcript text should not be copied" not in note_text

@@ -2,8 +2,8 @@
 
 Status: staged implementation. Phase 0 schema types are implemented as a safety
 baseline. Phase 3A now has local-file CLI skeletons for source status, ingest,
-review, compile planning, and Codex session transcript registration. Heavy
-ingest and compile apply are not active yet.
+review, compile planning, Codex session transcript registration, and
+conversation source-note compilation. Heavy ingest is not active yet.
 
 This plan expands Codex Ops Hub from project memory lookup into full Official
 LLM Wiki source intake and source compilation.
@@ -40,6 +40,7 @@ Implemented Phase 3A skeleton:
 - `source-compile --dry-run`.
 - `source-review`.
 - `codex-session-ingest --dry-run`.
+- `codex-session-compile --dry-run`.
 
 Still required before broad ingest:
 
@@ -62,6 +63,9 @@ The current implementation is deliberately narrow:
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-compile --repo "[project-root]" --source-id "[source-id]" --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-ingest --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-ingest --apply
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-compile --dry-run
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-compile --apply
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli qmd-sync --embed --timeout-seconds 300
 ```
 
 Current guarantees:
@@ -74,11 +78,18 @@ Current guarantees:
   `~/.codex/archived_sessions` JSONL transcripts as private conversation raw
   sources, grouped by the session `cwd` project identity.
 - Codex session ingest excludes `*.jsonl.bak*` backup files by default.
+- Codex session compile creates Obsidian `Sources/<project_id>/<source_id>.md`
+  notes and `Sources/<project_id>/conversation-index.md` indexes.
+- Conversation source notes contain provenance only. They do not copy raw
+  transcript text.
 - Raw content is not copied into Hermes or unrestricted wiki notes.
 - Private/customer/secret/restricted sources require review before compile.
 - `source-compile --dry-run` returns planned frontmatter and note path only.
-- `source-compile --apply` is intentionally not implemented yet.
+- `source-compile --apply` writes provenance-only source notes for lightweight
+  source types.
 - `evidence_allowed` remains runtime-computed and is not note frontmatter.
+- After large compile batches, refresh QMD with an explicit embed timeout. The
+  QMD batch timeout is separate from the bounded `memory_lookup` budget.
 
 ## Source Types
 

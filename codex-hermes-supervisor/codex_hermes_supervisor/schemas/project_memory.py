@@ -179,7 +179,14 @@ class SourceNoteFrontmatter(BaseModel):
         "imported_lesson",
     ]
     status: MemoryStatus = "draft"
+    review_status: Literal["unverified", "reviewed", "verified", "rejected"] = "unverified"
     confidence: Literal["high", "medium", "low"] = "medium"
+    evidence_class: Literal["reference_only", "candidate_evidence", "accepted_evidence", "operational_entrypoint"] = "reference_only"
+    source_type: SourceType | None = None
+    privacy: SourcePrivacy | None = None
+    source_id: str | None = None
+    raw_storage_uri: str | None = None
+    size_bytes: int | None = None
     source_refs: list[str] = Field(default_factory=list)
     source_hashes: list[str] = Field(default_factory=list)
     source_unknown_reason: str | None = None
@@ -207,6 +214,28 @@ class SourceCompileResult(BaseModel):
     compiled: bool = False
     planned_note_path: str | None = None
     frontmatter: SourceNoteFrontmatter
+    warnings: list[str] = Field(default_factory=list)
+
+
+class CodexSessionCompileProjectSummary(BaseModel):
+    project_id: str
+    workspace_id: str | None = None
+    repo_root: str | None = None
+    scanned: int = 0
+    planned: int = 0
+    compiled: int = 0
+    skipped: int = 0
+    index_path: str | None = None
+
+
+class CodexSessionCompileReport(BaseModel):
+    dry_run: bool = True
+    project_id: str | None = None
+    scanned_sources: int = 0
+    planned: int = 0
+    compiled: int = 0
+    skipped: int = 0
+    project_summaries: list[CodexSessionCompileProjectSummary] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 

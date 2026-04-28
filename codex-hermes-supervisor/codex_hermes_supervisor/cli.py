@@ -48,6 +48,7 @@ from codex_hermes_supervisor.services.project_memory import (
 from codex_hermes_supervisor.services.qmd_eval import evaluate_qmd_fixture, evaluate_qmd_gates
 from codex_hermes_supervisor.services.search_eval import evaluate_search_fixture, evaluate_search_gates
 from codex_hermes_supervisor.services.source_intake import (
+    codex_session_compile,
     codex_session_ingest,
     source_compile,
     source_ingest,
@@ -458,6 +459,23 @@ def codex_session_ingest_command(
     typer.echo(json.dumps(result.model_dump(), indent=2))
 
 
+@app.command(name="codex-session-compile")
+def codex_session_compile_command(
+    project_id: str | None = typer.Option(None, "--project-id"),
+    limit: int | None = typer.Option(None, "--limit"),
+    force: bool = typer.Option(False, "--force"),
+    dry_run: bool = typer.Option(True, "--dry-run/--apply"),
+) -> None:
+    """Create Obsidian source notes for registered Codex conversation sources.
+
+    This writes metadata/source-reference notes only. It does not copy raw
+    transcript content into Obsidian.
+    """
+    config = load_config()
+    result = codex_session_compile(config, project_id=project_id, limit=limit, force=force, dry_run=dry_run)
+    typer.echo(json.dumps(result.model_dump(), indent=2))
+
+
 @app.command(name="source-review")
 def source_review_command(
     repo: str = typer.Option(..., "--repo"),
@@ -499,9 +517,16 @@ def qmd_doctor() -> None:
 
 
 @app.command(name="qmd-sync")
-def qmd_sync(embed: bool = typer.Option(False, "--embed"), force_embed: bool = typer.Option(False, "--force-embed")) -> None:
+def qmd_sync(
+    embed: bool = typer.Option(False, "--embed"),
+    force_embed: bool = typer.Option(False, "--force-embed"),
+    timeout_seconds: int | None = typer.Option(None, "--timeout-seconds"),
+) -> None:
     """Register configured QMD collections and optionally run embeddings."""
     config = load_config()
+    if timeout_seconds is not None:
+        config = config.model_copy(deep=True)
+        config.search.qmd.timeout_seconds = timeout_seconds
     typer.echo(json.dumps(sync_qmd_collections(config, embed=embed, force_embed=force_embed).model_dump(), indent=2))
 
 

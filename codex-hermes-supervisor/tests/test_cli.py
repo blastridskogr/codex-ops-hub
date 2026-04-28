@@ -83,21 +83,25 @@ def test_qmd_sync_cli(monkeypatch, tmp_path) -> None:
     home.mkdir()
     monkeypatch.setattr("codex_hermes_supervisor.core.paths.user_home", lambda: home)
     monkeypatch.setattr("codex_hermes_supervisor.core.paths.supervisor_root", lambda: home / ".codex-hermes")
-    monkeypatch.setattr(
-        "codex_hermes_supervisor.cli.sync_qmd_collections",
-        lambda config, embed=False, force_embed=False: QmdSyncReport(
+    seen_timeout: list[int] = []
+
+    def _fake_sync(config, embed=False, force_embed=False):
+        seen_timeout.append(config.search.qmd.timeout_seconds)
+        return QmdSyncReport(
             executable=config.search.qmd.executable,
             synced_collections=[{"name": "codexwiki", "path": str(tmp_path / "vault")}],
             embed_requested=embed,
             embed_completed=embed,
             warnings=[],
-        ),
-    )
+        )
+
+    monkeypatch.setattr("codex_hermes_supervisor.cli.sync_qmd_collections", _fake_sync)
     runner = CliRunner()
-    result = runner.invoke(app, ["qmd-sync", "--embed"])
+    result = runner.invoke(app, ["qmd-sync", "--embed", "--timeout-seconds", "123"])
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["embed_requested"] is True
+    assert seen_timeout == [123]
 
 
 def test_qmd_eval_returns_nonzero_when_gate_fails(monkeypatch, tmp_path) -> None:

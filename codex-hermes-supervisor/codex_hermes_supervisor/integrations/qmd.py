@@ -180,6 +180,18 @@ def _resolve_qmd_relative_path(root: Path, rel: str) -> Path | None:
     return current.resolve()
 
 
+def _resolve_qmd_candidate_path(candidate: Path) -> Path:
+    """Resolve QMD paths while tolerating stripped trailing hyphens in links."""
+
+    if candidate.exists():
+        return candidate.resolve()
+    if candidate.suffix:
+        trailing_hyphen = candidate.with_name(f"{candidate.stem}-{candidate.suffix}")
+        if trailing_hyphen.exists():
+            return trailing_hyphen.resolve()
+    return candidate.resolve()
+
+
 def _resolve_qmd_path_object(raw_path: str, collection_map: dict[str, Path]) -> Path | None:
     try:
         if raw_path.startswith("qmd://"):
@@ -191,8 +203,8 @@ def _resolve_qmd_path_object(raw_path: str, collection_map: dict[str, Path]) -> 
             resolved = _resolve_qmd_relative_path(root, rel)
             if resolved is not None:
                 return resolved
-            return (root / rel.replace("/", "\\")).resolve()
-        return Path(str(raw_path)).resolve()
+            return _resolve_qmd_candidate_path(root / rel.replace("/", "\\"))
+        return _resolve_qmd_candidate_path(Path(str(raw_path)))
     except OSError:
         return None
 
