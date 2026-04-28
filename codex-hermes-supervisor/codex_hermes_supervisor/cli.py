@@ -377,6 +377,7 @@ def memory_lookup_command(
     limit: int = typer.Option(8, "--limit"),
     mode: str = typer.Option("hybrid", "--mode"),
     backend: str | None = typer.Option(None, "--backend"),
+    timeout_seconds: float | None = typer.Option(55.0, "--timeout-seconds"),
 ) -> None:
     """Build a scoped LLM Wiki context pack from user keywords."""
     config = load_config()
@@ -389,6 +390,7 @@ def memory_lookup_command(
         limit=limit,
         mode=mode,
         backend=backend,
+        timeout_seconds=timeout_seconds,
     )
     typer.echo(json.dumps(result.model_dump(), indent=2, ensure_ascii=False))
 

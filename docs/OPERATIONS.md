@@ -32,6 +32,13 @@ every task.
 When the user mentions a keyword, previous work, or workstream, run
 `memory_lookup` before planning.
 
+`memory_lookup` has a bounded lookup budget. The default CLI/MCP budget is 55
+seconds so it can return a degraded context pack before a normal MCP tool
+timeout. Use `--timeout-seconds [seconds]` on the CLI for acceptance testing.
+When the deadline is exceeded, the result includes `lookup_timing_ms`,
+`lookup_timeout_seconds`, `lookup_deadline_exceeded`, and explicit
+`MEMORY_LOOKUP_DEADLINE_EXCEEDED` warnings instead of silently hanging.
+
 ## Evidence Rules
 
 - Hermes recall is pointer memory, not same-session evidence.

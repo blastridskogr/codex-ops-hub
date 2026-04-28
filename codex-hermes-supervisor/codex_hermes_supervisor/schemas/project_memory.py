@@ -7,6 +7,34 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 MemoryStatus = Literal["draft", "reviewed", "stale", "superseded", "rejected"]
+SourceScope = Literal["global", "project", "workspace", "user", "reference"]
+SourcePrivacy = Literal["public", "private", "customer", "secret", "restricted", "unknown"]
+SourceType = Literal[
+    "repo_text",
+    "manual",
+    "conversation",
+    "terminal_log",
+    "document",
+    "spreadsheet",
+    "presentation",
+    "image",
+    "web",
+    "archive",
+    "other",
+]
+SourceLifecycleStatus = Literal[
+    "raw",
+    "extracted",
+    "compiled",
+    "reviewed",
+    "promoted",
+    "stale",
+    "superseded",
+    "archived",
+    "quarantined",
+    "rejected",
+]
+ReviewStatus = Literal["not_required", "pending", "reviewed", "rejected"]
 
 
 class ProjectSourceItem(BaseModel):
@@ -14,6 +42,98 @@ class ProjectSourceItem(BaseModel):
     path: str
     sha256: str
     status: MemoryStatus = "draft"
+
+
+class SourceManifestEntry(BaseModel):
+    """Raw-source registry entry for Official LLM Wiki source intake.
+
+    This describes evidence before it is compiled into Markdown memory. It must
+    not be treated as current-project evidence until source read, provenance,
+    scope filtering, and any required review/promote step pass at runtime.
+    """
+
+    source_id: str
+    source_type: SourceType
+    content_type: str | None = None
+    source_uri: str
+    raw_storage_uri: str | None = None
+    original_name: str | None = None
+    source_title: str | None = None
+    source_author: str | None = None
+    source_published_at: str | None = None
+    source_accessed_at: str | None = None
+    project_id: str | None = None
+    workspace_id: str | None = None
+    repo_root: str | None = None
+    scope: SourceScope = "project"
+    source_scope_reason: str = ""
+    sha256: str
+    size_bytes: int
+    privacy: SourcePrivacy = "unknown"
+    source_owner: Literal["user", "project", "external", "customer", "unknown"] = "unknown"
+    license_or_terms: str | None = None
+    extractor: str | None = None
+    extractor_version: str | None = None
+    extraction_status: Literal["not_started", "extracted", "failed", "not_supported"] = "not_started"
+    extracted_text_sha256: str | None = None
+    redaction_status: Literal["not_required", "pending", "redacted", "failed"] = "not_required"
+    review_status: ReviewStatus = "pending"
+    reviewed_by: str | None = None
+    reviewed_at: str | None = None
+    retention_policy: str | None = None
+    compiled_into: list[str] = Field(default_factory=list)
+    status: SourceLifecycleStatus = "raw"
+    quarantine_reason: str | None = None
+    notes: str = ""
+
+
+class SourceManifest(BaseModel):
+    source_manifest_schema_version: int = 1
+    entries: list[SourceManifestEntry] = Field(default_factory=list)
+
+
+class SourceNoteFrontmatter(BaseModel):
+    """Compiled Markdown note frontmatter.
+
+    `evidence_allowed` is intentionally absent. Evidence allowance is a runtime
+    decision, not permanent note metadata.
+    """
+
+    title: str
+    scope: SourceScope = "project"
+    project_id: str | None = None
+    workspace_id: str | None = None
+    repo_root: str | None = None
+    workstream_id: str | None = None
+    memory_kind: Literal[
+        "project",
+        "task",
+        "decision",
+        "bug",
+        "workflow",
+        "source",
+        "status",
+        "log",
+        "imported_lesson",
+    ]
+    status: MemoryStatus = "draft"
+    confidence: Literal["high", "medium", "low"] = "medium"
+    source_refs: list[str] = Field(default_factory=list)
+    source_hashes: list[str] = Field(default_factory=list)
+    source_unknown_reason: str | None = None
+    compiled_from: list[str] = Field(default_factory=list)
+    supersedes: list[str] = Field(default_factory=list)
+    superseded_by: list[str] = Field(default_factory=list)
+    related: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+
+
+class ImportedLessonFrontmatter(SourceNoteFrontmatter):
+    memory_kind: Literal["imported_lesson"] = "imported_lesson"
+    imported_from_project_id: str
+    promotion_reason: str
+    promotion_review_status: ReviewStatus = "pending"
+    imported_at: str
 
 
 class ProjectWikiItem(BaseModel):
@@ -191,6 +311,9 @@ class MemoryLookupResult(BaseModel):
     workstream_candidates: list[WorkstreamCandidate] = Field(default_factory=list)
     search_warnings: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    lookup_timing_ms: dict[str, int] = Field(default_factory=dict)
+    lookup_timeout_seconds: float | None = None
+    lookup_deadline_exceeded: bool = False
     context_pack: MemoryContextPack
 
 

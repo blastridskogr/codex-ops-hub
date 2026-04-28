@@ -62,6 +62,7 @@ _TOP_LEVEL_FILES = [
 _RECURSIVE_DIRS = ["docs", ".github/workflows", "tests", "scripts"]
 _EXCLUDE_PARTS = {"node_modules", "dist", "build", "coverage", ".git", ".venv", "venv", "__pycache__"}
 _EXCLUDE_NAMES = {".env", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"}
+_MEMORY_LOOKUP_DEFAULT_TIMEOUT_SECONDS = 55.0
 _TEXT_SUFFIXES = {
     ".md",
     ".txt",
@@ -1380,6 +1381,7 @@ def memory_lookup(
     limit: int = 8,
     mode: str = "hybrid",
     backend: str | None = None,
+    timeout_seconds: float | None = _MEMORY_LOOKUP_DEFAULT_TIMEOUT_SECONDS,
 ) -> MemoryLookupResult:
     """Build a scoped LLM Wiki context pack from user keywords.
 
@@ -1392,44 +1394,77 @@ def memory_lookup(
     current_project_id = project_id or identity.project_id
     normalized_mode = "keyword" if mode == "auto" else mode if mode in {"keyword", "semantic", "hybrid"} else "hybrid"
     requested_backend = backend or config.search.backend
+    result_backend = requested_backend if requested_backend in {"semantic_lite", "vector_local", "qmd"} else config.search.backend
     search_limit = max(limit * 2, limit)
+    started_at = time.perf_counter()
+    deadline = started_at + timeout_seconds if timeout_seconds is not None else None
+    lookup_timing_ms: dict[str, int] = {}
+    deadline_exceeded = False
+    deadline_warnings: list[str] = []
 
-    scoped = memory_search(
-        query,
-        project_id=current_project_id,
-        limit=search_limit,
-        mode=normalized_mode,
-        backend=requested_backend,
-        config=config,
-    )
-    global_result = memory_search(
-        query,
-        project_id=None,
-        limit=search_limit,
-        mode=normalized_mode,
-        backend=requested_backend,
-        config=config,
-    )
+    def remaining_seconds() -> float | None:
+        if deadline is None:
+            return None
+        return max(0.0, deadline - time.perf_counter())
+
+    def config_for_remaining_time() -> SupervisorConfig:
+        remaining = remaining_seconds()
+        if remaining is None:
+            return config
+        scoped_config = config.model_copy(deep=True)
+        scoped_config.search.qmd.timeout_seconds = max(1, min(scoped_config.search.qmd.timeout_seconds, math.ceil(remaining)))
+        return scoped_config
+
+    def empty_search_result(step: str, warning: str) -> MemorySearchResult:
+        step_project_id = current_project_id if step.endswith("scoped") else None
+        return MemorySearchResult(
+            query=query,
+            project_id=step_project_id,
+            mode=normalized_mode if normalized_mode in {"keyword", "semantic", "hybrid"} else "hybrid",
+            backend=result_backend,
+            warnings=[warning],
+            hits=[],
+        )
+
+    def run_search_step(
+        step: str,
+        *,
+        step_project_id: str | None,
+        step_mode: str,
+    ) -> MemorySearchResult:
+        nonlocal deadline_exceeded
+        remaining = remaining_seconds()
+        if remaining is not None and remaining <= 0:
+            deadline_exceeded = True
+            warning = f"MEMORY_LOOKUP_DEADLINE_EXCEEDED: skipped {step}."
+            deadline_warnings.append(warning)
+            return empty_search_result(step, warning)
+
+        step_started = time.perf_counter()
+        result = memory_search(
+            query,
+            project_id=step_project_id,
+            limit=search_limit,
+            mode=step_mode,
+            backend=requested_backend,
+            config=config_for_remaining_time(),
+        )
+        lookup_timing_ms[step] = int(round((time.perf_counter() - step_started) * 1000))
+        remaining = remaining_seconds()
+        if remaining is not None and remaining <= 0:
+            deadline_exceeded = True
+            warning = f"MEMORY_LOOKUP_DEADLINE_EXCEEDED_AFTER_STEP: {step} consumed the lookup budget."
+            deadline_warnings.append(warning)
+        return result
+
+    scoped = run_search_step("primary_scoped", step_project_id=current_project_id, step_mode=normalized_mode)
+    global_result = run_search_step("primary_global", step_project_id=None, step_mode=normalized_mode)
     global_hits, global_warnings = _enrich_search_hits_with_evidence(global_result.hits, current_project_id=current_project_id)
     extra_hits: list[MemorySearchHit] = []
     extra_warnings: list[str] = []
     if normalized_mode == "hybrid":
-        keyword_scoped = memory_search(
-            query,
-            project_id=current_project_id,
-            limit=search_limit,
-            mode="keyword",
-            backend=requested_backend,
-            config=config,
-        )
-        keyword_global = memory_search(
-            query,
-            project_id=None,
-            limit=search_limit,
-            mode="keyword",
-            backend=requested_backend,
-            config=config,
-        )
+        keyword_scoped = run_search_step("keyword_scoped", step_project_id=current_project_id, step_mode="keyword")
+        keyword_global = run_search_step("keyword_global", step_project_id=None, step_mode="keyword")
         keyword_global_hits, keyword_global_warnings = _enrich_search_hits_with_evidence(keyword_global.hits, current_project_id=current_project_id)
         extra_hits.extend([*keyword_scoped.hits, *keyword_global_hits])
         extra_warnings.extend([*keyword_scoped.warnings, *keyword_global.warnings, *keyword_global_warnings])
@@ -1441,7 +1476,8 @@ def memory_lookup(
     candidates = _infer_workstream_candidates(query, allowed_hits, requested_workstream_id=workstream_id)
     inferred_workstream_id = candidates[0].workstream_id if candidates else None
 
-    search_warnings = _unique_warnings([*scoped.warnings, *global_result.warnings, *global_warnings, *extra_warnings])
+    lookup_timing_ms["total"] = int(round((time.perf_counter() - started_at) * 1000))
+    search_warnings = _unique_warnings([*scoped.warnings, *global_result.warnings, *global_warnings, *extra_warnings, *deadline_warnings])
     warnings = list(search_warnings)
     if rejected_hits:
         warnings.append(f"MEMORY_LOOKUP_REFERENCE_ONLY_HITS: {len(rejected_hits)} hit(s) were excluded from evidence.")
@@ -1480,5 +1516,8 @@ def memory_lookup(
         workstream_candidates=candidates,
         search_warnings=search_warnings,
         warnings=warnings,
+        lookup_timing_ms=lookup_timing_ms,
+        lookup_timeout_seconds=timeout_seconds,
+        lookup_deadline_exceeded=deadline_exceeded,
         context_pack=context_pack,
     )

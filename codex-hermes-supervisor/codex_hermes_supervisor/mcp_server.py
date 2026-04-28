@@ -246,6 +246,7 @@ def build_server(profile: str) -> FastMCP:
         limit: int = 8,
         mode: str = "auto",
         backend: str | None = None,
+        timeout_seconds: float | None = 55.0,
     ):
         return memory_lookup(
             query,
@@ -256,6 +257,7 @@ def build_server(profile: str) -> FastMCP:
             limit=limit,
             mode=mode,
             backend=backend,
+            timeout_seconds=timeout_seconds,
         ).model_dump()
 
     @server.tool(name="wiki_note")

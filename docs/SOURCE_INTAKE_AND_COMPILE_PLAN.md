@@ -1,6 +1,7 @@
 ﻿# Source Intake And Compile Plan
 
-Status: planned extension, not fully implemented.
+Status: planned extension, not fully implemented. Phase 0 schema types are
+implemented as a safety baseline; ingest/compile commands are not active yet.
 
 This plan expands Codex Ops Hub from project memory lookup into full Official
 LLM Wiki source intake and source compilation.
@@ -25,11 +26,14 @@ raw/source artifact
 
 ## Phase 0: Safety Contract
 
-Implement before broad ingest:
+Implemented schema baseline:
 
 - `SourceManifest` schema.
 - `SourceNote` schema.
 - `ImportedLesson` schema.
+
+Still required before broad ingest:
+
 - `source-ingest --dry-run`.
 - `source-compile --dry-run`.
 - `source-review`.

@@ -12,12 +12,15 @@
 - Hermes-style outbox handoffs.
 - Obsidian/QMD/vector memory lookup paths.
 - Current-project/global evidence filtering in implemented lookup paths.
+- Bounded `memory_lookup` diagnostics with lookup timing and deadline warnings.
+- Source intake Phase 0 schema baseline: `SourceManifest`, `SourceNote`, and
+  `ImportedLesson` frontmatter.
 
 ## Next
 
-- Public release cleanup and version tag.
-- Source ingest/compile Phase 0 safety contract.
 - Lightweight source ingest for repo text, Markdown, reviewed logs, and reviewed conversations.
+- `source-ingest --dry-run`, `source-compile --dry-run`, `source-review`, and
+  `source-promote --dry-run`.
 - Cross-project candidate/import/promote workflow.
 - Source governance doctor.
 - Synthetic cross-project validation.

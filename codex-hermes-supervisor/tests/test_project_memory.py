@@ -694,6 +694,25 @@ def test_memory_lookup_auto_uses_fast_keyword_path(tmp_path: Path, monkeypatch) 
     assert all(source.source_read for source in result.context_pack.sources)
 
 
+def test_memory_lookup_timeout_returns_degraded_context(tmp_path: Path, monkeypatch) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr("codex_hermes_supervisor.core.paths.user_home", lambda: home)
+    monkeypatch.setattr("codex_hermes_supervisor.core.paths.supervisor_root", lambda: home / ".codex-hermes")
+    monkeypatch.setattr("codex_hermes_supervisor.integrations.hermes.user_home", lambda: home)
+
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+
+    result = memory_lookup("sample service", repo_root=repo, config=config, mode="hybrid", timeout_seconds=0)
+
+    assert result.lookup_deadline_exceeded is True
+    assert result.lookup_timeout_seconds == 0
+    assert result.lookup_timing_ms["total"] >= 0
+    assert not result.context_pack.sources
+    assert any("MEMORY_LOOKUP_DEADLINE_EXCEEDED" in warning for warning in result.warnings)
+
+
 def test_qmd_doctor_uses_command_prefix_for_version(tmp_path: Path) -> None:
     from codex_hermes_supervisor.integrations.qmd import build_qmd_doctor_report
 
