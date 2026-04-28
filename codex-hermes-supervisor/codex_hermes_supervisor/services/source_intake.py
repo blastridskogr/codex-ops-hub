@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import mimetypes
+import re
 from pathlib import Path
 
 import yaml
@@ -12,8 +14,10 @@ from codex_hermes_supervisor.core.atomic_write import atomic_write_text
 from codex_hermes_supervisor.core.config import SupervisorConfig
 from codex_hermes_supervisor.core.identity import build_identity, normalize_windows_path
 from codex_hermes_supervisor.core.locks import now_local_iso
-from codex_hermes_supervisor.core.paths import supervisor_projects_root
+from codex_hermes_supervisor.core.paths import supervisor_projects_root, user_home
 from codex_hermes_supervisor.schemas.project_memory import (
+    CodexSessionIngestProjectSummary,
+    CodexSessionIngestReport,
     ReviewStatus,
     SourceCompileResult,
     SourceIngestResult,
@@ -30,6 +34,7 @@ from codex_hermes_supervisor.schemas.project_memory import (
 _REVIEW_REQUIRED_PRIVACY = {"private", "customer", "secret", "restricted"}
 _LIGHTWEIGHT_SOURCE_TYPES = {"repo_text", "manual", "conversation", "terminal_log"}
 _MAX_LIGHTWEIGHT_SOURCE_SIZE = 2 * 1024 * 1024
+_SESSION_ID_RE = re.compile(r"(019[0-9a-f]{5,}-[0-9a-f-]{20,})", re.IGNORECASE)
 
 
 def _project_dir(project_id: str) -> Path:
@@ -64,6 +69,13 @@ def _source_id_from_hash(sha256: str) -> str:
     return f"src-{sha256.removeprefix('sha256:')[:12]}"
 
 
+def _source_id_from_session_id(session_id: str, fallback_sha256: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", session_id.lower()).strip("-")
+    if slug:
+        return f"conv-{slug[:24]}"
+    return f"conv-{fallback_sha256.removeprefix('sha256:')[:12]}"
+
+
 def _resolve_repo_source(repo_root: Path, source_path: Path) -> Path:
     repo_root = repo_root.resolve()
     resolved = source_path if source_path.is_absolute() else repo_root / source_path
@@ -84,6 +96,227 @@ def _find_entry(manifest: SourceManifest, source_id: str) -> tuple[int, SourceMa
         if entry.source_id == source_id:
             return index, entry
     return None
+
+
+def _load_session_index(codex_home: Path) -> dict[str, dict[str, str]]:
+    index_path = codex_home / "session_index.jsonl"
+    if not index_path.exists():
+        return {}
+    index: dict[str, dict[str, str]] = {}
+    for line in index_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        session_id = str(payload.get("id") or "").strip()
+        if not session_id:
+            continue
+        index[session_id] = {
+            "thread_name": str(payload.get("thread_name") or ""),
+            "updated_at": str(payload.get("updated_at") or ""),
+        }
+    return index
+
+
+def _iter_codex_session_files(codex_home: Path, *, include_archived: bool, include_backups: bool) -> list[Path]:
+    roots = [codex_home / "sessions"]
+    if include_archived:
+        roots.append(codex_home / "archived_sessions")
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        if not root.exists():
+            continue
+        pattern = "rollout-*.jsonl*" if include_backups else "rollout-*.jsonl"
+        for path in sorted(root.rglob(pattern)):
+            if not path.is_file():
+                continue
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            paths.append(resolved)
+    return paths
+
+
+def _session_id_from_path(path: Path) -> str | None:
+    match = _SESSION_ID_RE.search(path.name)
+    return match.group(1) if match else None
+
+
+def _session_meta(path: Path) -> dict[str, object]:
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        for index, line in enumerate(handle):
+            if index > 64:
+                break
+            if not line.strip():
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if item.get("type") == "session_meta" and isinstance(item.get("payload"), dict):
+                return dict(item["payload"])
+    return {}
+
+
+def _identity_for_session(meta: dict[str, object], codex_home: Path) -> tuple[object, str]:
+    cwd = str(meta.get("cwd") or "").strip()
+    if cwd:
+        cwd_path = Path(cwd)
+        if cwd_path.exists():
+            return build_identity(cwd_path), f"codex session cwd metadata: {normalize_windows_path(cwd_path)}"
+    return build_identity(codex_home), "fallback: session cwd missing or unavailable"
+
+
+def codex_session_ingest(
+    *,
+    codex_home: Path | None = None,
+    include_archived: bool = True,
+    include_backups: bool = False,
+    dry_run: bool = True,
+    limit: int | None = None,
+) -> CodexSessionIngestReport:
+    """Register Codex thread JSONL files as private conversation raw sources.
+
+    This inventories conversation transcripts as Official LLM Wiki source
+    material. It never copies raw conversation content into Hermes or Obsidian
+    wiki notes.
+    """
+
+    codex_home = (codex_home or (user_home() / ".codex")).resolve()
+    session_index = _load_session_index(codex_home)
+    files = _iter_codex_session_files(codex_home, include_archived=include_archived, include_backups=include_backups)
+    if limit is not None:
+        files = files[:limit]
+    manifests: dict[str, SourceManifest] = {}
+    identities: dict[str, object] = {}
+    summaries: dict[str, dict[str, object]] = {}
+    warnings: list[str] = []
+    skipped = 0
+    created_total = 0
+    updated_total = 0
+    unchanged_total = 0
+    total_size = 0
+
+    for path in files:
+        try:
+            stat = path.stat()
+            sha256 = _sha256_file(path)
+            meta = _session_meta(path)
+        except OSError as exc:
+            skipped += 1
+            warnings.append(f"CODEX_SESSION_UNREADABLE: {normalize_windows_path(path)}: {exc}")
+            continue
+        identity, scope_reason = _identity_for_session(meta, codex_home)
+        project_id = identity.project_id
+        identities[project_id] = identity
+        manifest = manifests.get(project_id)
+        if manifest is None:
+            manifest = _load_source_manifest(project_id)
+            manifests[project_id] = manifest
+        session_id = str(meta.get("id") or _session_id_from_path(path) or "")
+        index_entry = session_index.get(session_id, {})
+        source_id = _source_id_from_session_id(session_id, sha256)
+        title = str(index_entry.get("thread_name") or meta.get("thread_name") or path.stem)
+        timestamp = str(meta.get("timestamp") or index_entry.get("updated_at") or "")
+        notes = "Codex session transcript raw source; unverified/reference-only until compiled."
+        role = meta.get("agent_role")
+        nickname = meta.get("agent_nickname")
+        model = meta.get("model")
+        if role or nickname or model:
+            notes += f" role={role or ''}; nickname={nickname or ''}; model={model or ''}."
+        entry = SourceManifestEntry(
+            source_id=source_id,
+            source_type="conversation",
+            content_type="application/x-ndjson",
+            source_uri=normalize_windows_path(path),
+            raw_storage_uri=normalize_windows_path(path),
+            original_name=path.name,
+            source_title=title,
+            source_published_at=timestamp or None,
+            source_accessed_at=now_local_iso(),
+            project_id=project_id,
+            workspace_id=identity.workspace_id,
+            repo_root=identity.repo_root,
+            scope="project",
+            source_scope_reason=scope_reason,
+            sha256=sha256,
+            size_bytes=stat.st_size,
+            privacy="private",
+            source_owner="user",
+            extractor="codex-session-ingest",
+            extractor_version="1",
+            extraction_status="not_started",
+            redaction_status="pending",
+            review_status="pending",
+            retention_policy="preserve raw transcript in Codex session store; compile only reviewed summaries",
+            status="raw",
+            notes=notes,
+        )
+        found = _find_entry(manifest, source_id)
+        created = found is None
+        updated = False
+        unchanged = False
+        if found is None:
+            if not dry_run:
+                manifest.entries.append(entry)
+        else:
+            existing_index, existing_entry = found
+            if existing_entry.sha256 == entry.sha256 and existing_entry.source_uri == entry.source_uri:
+                unchanged = True
+            else:
+                updated = True
+                if not dry_run:
+                    manifest.entries[existing_index] = entry
+        created_total += 1 if created else 0
+        updated_total += 1 if updated else 0
+        unchanged_total += 1 if unchanged else 0
+        total_size += stat.st_size
+        summary = summaries.setdefault(
+            project_id,
+            {
+                "project_id": project_id,
+                "workspace_id": identity.workspace_id,
+                "repo_root": identity.repo_root,
+                "manifest_path": normalize_windows_path(_source_manifest_path(project_id)),
+                "scanned": 0,
+                "created": 0,
+                "updated": 0,
+                "unchanged": 0,
+                "bytes": 0,
+            },
+        )
+        summary["scanned"] = int(summary["scanned"]) + 1
+        summary["created"] = int(summary["created"]) + (1 if created else 0)
+        summary["updated"] = int(summary["updated"]) + (1 if updated else 0)
+        summary["unchanged"] = int(summary["unchanged"]) + (1 if unchanged else 0)
+        summary["bytes"] = int(summary["bytes"]) + stat.st_size
+
+    if not dry_run:
+        for project_id, manifest in manifests.items():
+            _save_source_manifest(project_id, manifest)
+
+    project_summaries = [
+        CodexSessionIngestProjectSummary.model_validate(summary)
+        for summary in sorted(summaries.values(), key=lambda item: (str(item["repo_root"]).lower(), str(item["project_id"])))
+    ]
+    return CodexSessionIngestReport(
+        dry_run=dry_run,
+        codex_home=normalize_windows_path(codex_home),
+        include_archived=include_archived,
+        include_backups=include_backups,
+        scanned_files=len(files) - skipped,
+        created=created_total,
+        updated=updated_total,
+        unchanged=unchanged_total,
+        skipped=skipped,
+        total_size_bytes=total_size,
+        project_summaries=project_summaries,
+        warnings=warnings,
+    )
 
 
 def source_status(repo_root: Path) -> SourceStatusReport:

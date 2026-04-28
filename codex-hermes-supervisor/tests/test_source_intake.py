@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
 from codex_hermes_supervisor.core.config import SupervisorConfig
-from codex_hermes_supervisor.services.source_intake import source_compile, source_ingest, source_review, source_status
+from codex_hermes_supervisor.services.source_intake import (
+    codex_session_ingest,
+    source_compile,
+    source_ingest,
+    source_review,
+    source_status,
+)
 
 
 def _run(args: list[str], cwd: Path) -> None:
@@ -106,3 +113,76 @@ def test_source_compile_frontmatter_keeps_evidence_allowed_runtime_only(tmp_path
     assert result.frontmatter.memory_kind == "source"
     assert result.frontmatter.source_hashes == [ingest.entry.sha256]
     assert "evidence_allowed" not in frontmatter
+
+
+def test_codex_session_ingest_registers_private_conversations_by_session_cwd(tmp_path: Path, monkeypatch) -> None:
+    _patch_home(tmp_path, monkeypatch)
+    repo = _init_repo(tmp_path)
+    codex_home = tmp_path / ".codex"
+    session_dir = codex_home / "sessions" / "2026" / "04" / "29"
+    session_dir.mkdir(parents=True)
+    session_id = "019dd5b6-32f6-79d1-b8eb-6c6da0cd690c"
+    session_path = session_dir / f"rollout-2026-04-29T05-09-40-{session_id}.jsonl"
+    session_path.write_text(
+        json.dumps(
+            {
+                "timestamp": "2026-04-29T00:00:00Z",
+                "type": "session_meta",
+                "payload": {
+                    "id": session_id,
+                    "timestamp": "2026-04-29T00:00:00Z",
+                    "cwd": str(repo),
+                    "agent_role": "oracle",
+                    "agent_nickname": "Verifier",
+                    "model": "gpt-5.5",
+                },
+            }
+        )
+        + "\n"
+        + json.dumps({"type": "message", "payload": {"role": "user", "content": "verify this"}})
+        + "\n",
+        encoding="utf-8",
+    )
+    (codex_home / "session_index.jsonl").write_text(
+        json.dumps({"id": session_id, "thread_name": "Verify thread", "updated_at": "2026-04-29T00:01:00Z"}) + "\n",
+        encoding="utf-8",
+    )
+
+    dry_run = codex_session_ingest(codex_home=codex_home, dry_run=True)
+    assert dry_run.created == 1
+    assert dry_run.project_summaries[0].repo_root == str(repo.resolve())
+    assert not Path(dry_run.project_summaries[0].manifest_path).exists()
+
+    applied = codex_session_ingest(codex_home=codex_home, dry_run=False)
+    status = source_status(repo)
+
+    assert applied.created == 1
+    assert status.total_entries == 1
+    assert status.pending_review == 1
+    manifest_text = Path(status.manifest_path).read_text(encoding="utf-8")
+    assert "source_type: conversation" in manifest_text
+    assert "privacy: private" in manifest_text
+    assert "review_status: pending" in manifest_text
+    assert "Verify thread" in manifest_text
+
+
+def test_codex_session_ingest_skips_backups_by_default(tmp_path: Path, monkeypatch) -> None:
+    _patch_home(tmp_path, monkeypatch)
+    repo = _init_repo(tmp_path)
+    codex_home = tmp_path / ".codex"
+    session_dir = codex_home / "sessions" / "2026" / "04" / "29"
+    session_dir.mkdir(parents=True)
+    payload = {
+        "timestamp": "2026-04-29T00:00:00Z",
+        "type": "session_meta",
+        "payload": {"id": "019dd5b6-aaaa-79d1-b8eb-6c6da0cd690c", "cwd": str(repo)},
+    }
+    (session_dir / "rollout-2026-04-29T00-00-00-019dd5b6-aaaa-79d1-b8eb-6c6da0cd690c.jsonl.bak").write_text(
+        json.dumps(payload) + "\n",
+        encoding="utf-8",
+    )
+
+    result = codex_session_ingest(codex_home=codex_home, dry_run=True)
+
+    assert result.scanned_files == 0
+    assert result.created == 0

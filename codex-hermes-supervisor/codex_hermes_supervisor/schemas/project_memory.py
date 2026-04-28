@@ -117,6 +117,33 @@ class SourceIngestResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class CodexSessionIngestProjectSummary(BaseModel):
+    project_id: str
+    workspace_id: str
+    repo_root: str
+    manifest_path: str
+    scanned: int = 0
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    bytes: int = 0
+
+
+class CodexSessionIngestReport(BaseModel):
+    dry_run: bool = True
+    codex_home: str
+    include_archived: bool = True
+    include_backups: bool = False
+    scanned_files: int = 0
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    skipped: int = 0
+    total_size_bytes: int = 0
+    project_summaries: list[CodexSessionIngestProjectSummary] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class SourceReviewResult(BaseModel):
     project_id: str
     workspace_id: str

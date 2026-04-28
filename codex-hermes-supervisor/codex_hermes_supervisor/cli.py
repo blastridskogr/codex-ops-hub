@@ -47,7 +47,13 @@ from codex_hermes_supervisor.services.project_memory import (
 )
 from codex_hermes_supervisor.services.qmd_eval import evaluate_qmd_fixture, evaluate_qmd_gates
 from codex_hermes_supervisor.services.search_eval import evaluate_search_fixture, evaluate_search_gates
-from codex_hermes_supervisor.services.source_intake import source_compile, source_ingest, source_review, source_status
+from codex_hermes_supervisor.services.source_intake import (
+    codex_session_ingest,
+    source_compile,
+    source_ingest,
+    source_review,
+    source_status,
+)
 from codex_hermes_supervisor.mcp_server import main as mcp_main
 
 app = typer.Typer(help="Codex-Hermes supervisor CLI.")
@@ -425,6 +431,29 @@ def source_ingest_command(
         scope=scope,  # type: ignore[arg-type]
         dry_run=dry_run,
         notes=notes,
+    )
+    typer.echo(json.dumps(result.model_dump(), indent=2))
+
+
+@app.command(name="codex-session-ingest")
+def codex_session_ingest_command(
+    codex_home: str | None = typer.Option(None, "--codex-home"),
+    include_archived: bool = typer.Option(True, "--include-archived/--no-include-archived"),
+    include_backups: bool = typer.Option(False, "--include-backups/--no-include-backups"),
+    limit: int | None = typer.Option(None, "--limit"),
+    dry_run: bool = typer.Option(True, "--dry-run/--apply"),
+) -> None:
+    """Register Codex thread JSONL transcripts as private conversation sources.
+
+    This is source registration only. It does not copy raw transcript content
+    into Hermes or Obsidian wiki notes.
+    """
+    result = codex_session_ingest(
+        codex_home=Path(codex_home) if codex_home else None,
+        include_archived=include_archived,
+        include_backups=include_backups,
+        limit=limit,
+        dry_run=dry_run,
     )
     typer.echo(json.dumps(result.model_dump(), indent=2))
 
