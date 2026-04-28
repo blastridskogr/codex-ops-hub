@@ -14,6 +14,9 @@
 - Current-project/global evidence filtering in implemented lookup paths.
 - Bounded `memory_lookup` diagnostics with lookup timing and deadline warnings.
 - Adaptive `memory_preflight` CLI/MCP bridge for read-before-work decisions.
+- Optional `harness_plan` preflight gate through
+  `memory_policy.require_memory_preflight_for_plan` or per-plan
+  `require_memory_preflight`.
 - Source intake Phase 0 schema baseline: `SourceManifest`, `SourceNote`, and
   `ImportedLesson` frontmatter.
 - Source intake Phase 3A CLI skeleton:
@@ -32,7 +35,6 @@
 ## Later
 
 - Heavy source ingest for PDF, DOCX, XLSX, PPTX, images, web pages, and archives.
-- Strict active-memory hard gate that requires `memory_preflight` output in
-  `harness_plan` and writeback status in `harness_finish`.
+- Strict active-memory finish gate with writeback status in `harness_finish`.
 - AppServer-supervised controller track.
 - Project-local `docs/wiki` portability track.

@@ -78,6 +78,8 @@ def build_server(profile: str) -> FastMCP:
         delete_allowed: bool = False,
         rename_allowed: bool = False,
         allow_submodule_changes: bool = False,
+        memory_preflight: dict | None = None,
+        require_memory_preflight: bool = False,
         idempotency_key: str | None = None,
     ):
         payload = HarnessPlanInput(
@@ -93,6 +95,8 @@ def build_server(profile: str) -> FastMCP:
             delete_allowed=delete_allowed,
             rename_allowed=rename_allowed,
             allow_submodule_changes=allow_submodule_changes,
+            memory_preflight=memory_preflight,
+            require_memory_preflight=require_memory_preflight,
             idempotency_key=idempotency_key,
         )
         return harness_plan(config, payload).model_dump()

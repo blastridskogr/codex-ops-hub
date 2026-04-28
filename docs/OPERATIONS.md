@@ -42,6 +42,18 @@ during planning.
 Use `memory_lookup` directly only for lower-level lookup diagnostics or manual
 context inspection.
 
+To enforce the plan gate, enable the global config flag or pass the per-plan
+flag:
+
+```yaml
+memory_policy:
+  require_memory_preflight_for_plan: true
+```
+
+When enabled, `harness_plan` rejects plans without a valid `memory_preflight`
+result, rejects preflight blockers, and records the preflight source paths,
+reference-only rejects, warnings, and memory decision in task state.
+
 `memory_lookup` has a bounded lookup budget. The default CLI/MCP budget is 55
 seconds so it can return a degraded context pack before a normal MCP tool
 timeout. Use `--timeout-seconds [seconds]` on the CLI for acceptance testing.

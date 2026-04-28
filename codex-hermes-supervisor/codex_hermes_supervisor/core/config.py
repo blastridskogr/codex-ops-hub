@@ -135,6 +135,7 @@ class MemoryPolicyConfig(BaseModel):
     store_raw_diffs: bool = False
     store_secrets: bool = False
     max_hermes_summary_chars: int = 1200
+    require_memory_preflight_for_plan: bool = False
 
 
 class TaskRecordsConfig(BaseModel):

@@ -60,6 +60,11 @@ Read-before-work is adaptive:
 
 Do not read the entire vault for every task.
 
+`harness_plan` can enforce this loop when
+`memory_policy.require_memory_preflight_for_plan` or the per-plan
+`require_memory_preflight` flag is enabled. In that mode, planning must include
+a valid `memory_preflight` result.
+
 ## Cross-Project Knowledge
 
 Whole-vault search may find related notes from other projects.

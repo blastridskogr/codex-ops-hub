@@ -30,6 +30,21 @@ class GitBaseline(BaseModel):
     submodule_status_at_start: str | None = None
 
 
+class PlanMemoryContext(BaseModel):
+    preflight_required: bool = False
+    query: str | None = None
+    memory_decision: str | None = None
+    skip_reason: str | None = None
+    lookup_required: bool = False
+    lookup_ran: bool = False
+    memory_evidence_ready: bool = False
+    source_paths: list[str] = Field(default_factory=list)
+    rejected_reference_paths: list[str] = Field(default_factory=list)
+    workstream_id: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+
+
 class PlanState(BaseModel):
     allowed_files: list[str] = Field(default_factory=list)
     forbidden_files: list[str] = Field(default_factory=list)
@@ -42,6 +57,7 @@ class PlanState(BaseModel):
     rename_allowed: bool = False
     allow_submodule_changes: bool = False
     plan_revision: int = 0
+    memory_context: PlanMemoryContext = Field(default_factory=PlanMemoryContext)
 
 
 class IdempotencyRecord(BaseModel):

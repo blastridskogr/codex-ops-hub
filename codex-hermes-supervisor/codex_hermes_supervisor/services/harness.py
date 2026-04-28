@@ -19,7 +19,7 @@ from codex_hermes_supervisor.integrations.hermes import HermesDirectModeError, a
 from codex_hermes_supervisor.integrations.obsidian import write_wiki_note
 from codex_hermes_supervisor.schemas.errors import ErrorItem, ViolationItem
 from codex_hermes_supervisor.schemas.responses import ResponseEnvelope
-from codex_hermes_supervisor.schemas.state import StrictWriteRecord, TaskState
+from codex_hermes_supervisor.schemas.state import PlanMemoryContext, StrictWriteRecord, TaskState
 from codex_hermes_supervisor.schemas.tools import (
     HarnessBeginData,
     HarnessBeginInput,
@@ -349,6 +349,54 @@ def harness_plan(config: SupervisorConfig, payload: HarnessPlanInput) -> Respons
 
     with _lock_for(store, state, "harness_plan", config):
         require_transition(state.phase, "PLANNED")
+        preflight_required = config.memory_policy.require_memory_preflight_for_plan or payload.require_memory_preflight
+        memory_context = PlanMemoryContext(preflight_required=preflight_required)
+        if preflight_required and payload.memory_preflight is None:
+            return _error(
+                "harness_plan",
+                "MEMORY_PREFLIGHT_REQUIRED",
+                "memory_preflight is required before planning in the active memory profile.",
+            )
+        if payload.memory_preflight is not None:
+            preflight = payload.memory_preflight
+            if preflight.project_id != state.project_id:
+                return _error(
+                    "harness_plan",
+                    "MEMORY_PREFLIGHT_PROJECT_MISMATCH",
+                    "memory_preflight project_id does not match the active task project_id.",
+                )
+            if Path(preflight.repo_root).resolve() != repo_root:
+                return _error(
+                    "harness_plan",
+                    "MEMORY_PREFLIGHT_REPO_MISMATCH",
+                    "memory_preflight repo_root does not match the active task repo_root.",
+                )
+            if preflight.blockers:
+                return _error(
+                    "harness_plan",
+                    "MEMORY_PREFLIGHT_HAS_BLOCKERS",
+                    "memory_preflight contains blockers that must be resolved before planning.",
+                )
+            if preflight.memory_decision != "no_memory_needed" and not preflight.lookup_ran:
+                return _error(
+                    "harness_plan",
+                    "MEMORY_PREFLIGHT_LOOKUP_NOT_RUN",
+                    "memory_preflight lookup did not run for a lookup-required memory decision.",
+                )
+            memory_context = PlanMemoryContext(
+                preflight_required=preflight_required,
+                query=preflight.query,
+                memory_decision=preflight.memory_decision,
+                skip_reason=preflight.skip_reason,
+                lookup_required=preflight.lookup_required,
+                lookup_ran=preflight.lookup_ran,
+                memory_evidence_ready=preflight.memory_evidence_ready,
+                source_paths=preflight.source_paths,
+                rejected_reference_paths=preflight.rejected_reference_paths,
+                workstream_id=preflight.workstream_id,
+                warnings=preflight.warnings,
+                blockers=preflight.blockers,
+            )
         state.plan.allowed_files = payload.allowed_files
         state.plan.forbidden_files = payload.forbidden_files
         state.plan.managed_files = payload.managed_files
@@ -359,6 +407,7 @@ def harness_plan(config: SupervisorConfig, payload: HarnessPlanInput) -> Respons
         state.plan.delete_allowed = payload.delete_allowed
         state.plan.rename_allowed = payload.rename_allowed
         state.plan.allow_submodule_changes = payload.allow_submodule_changes
+        state.plan.memory_context = memory_context
         state.plan.plan_revision += 1
         state.phase = "PLANNED"
         state.updated_at = now_local_iso()

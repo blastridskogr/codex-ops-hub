@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from .errors import ViolationItem
+from .project_memory import MemoryPreflightResult
 from .state import GitBaseline, IdentityModel, PlanState, RiskLevel, TaskState
 from .verification import LegacyTestRun, VerificationResult, VerificationStep
 from .versioning import ManagedFileDeclaration, VersionPrepareData, VersionSyncData
@@ -83,6 +84,8 @@ class HarnessPlanInput(BaseModel):
     delete_allowed: bool = False
     rename_allowed: bool = False
     allow_submodule_changes: bool = False
+    memory_preflight: MemoryPreflightResult | None = None
+    require_memory_preflight: bool = False
     idempotency_key: str | None = None
 
 

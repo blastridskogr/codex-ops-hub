@@ -16,6 +16,7 @@ from codex_hermes_supervisor.services.harness import (
     version_prepare_tool,
     version_sync_tool,
 )
+from codex_hermes_supervisor.schemas.project_memory import MemoryPreflightResult
 from codex_hermes_supervisor.schemas.wiki import WikiNoteData
 from codex_hermes_supervisor.schemas.tools import (
     HarnessBeginInput,
@@ -63,6 +64,76 @@ def _config(tmp_path: Path) -> SupervisorConfig:
             },
         }
     )
+
+
+def test_harness_plan_requires_memory_preflight_when_enabled(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+    config.memory_policy.require_memory_preflight_for_plan = True
+
+    begin = harness_begin(config, HarnessBeginInput(repo_root=str(repo), task="create script"))
+    task_id = begin.data.task_id
+
+    plan = harness_plan(
+        config,
+        HarnessPlanInput(
+            repo_root=str(repo),
+            task_id=task_id,
+            plan_summary="Create script",
+            allowed_files=["tools/TEST.py"],
+            risk_level="low",
+        ),
+    )
+
+    assert plan.ok is False
+    assert plan.errors
+    assert plan.errors[0].code == "MEMORY_PREFLIGHT_REQUIRED"
+
+
+def test_harness_plan_records_memory_preflight_context(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+
+    begin = harness_begin(config, HarnessBeginInput(repo_root=str(repo), task="create script"))
+    task_id = begin.data.task_id
+    identity = build_identity(repo.resolve())
+    preflight = MemoryPreflightResult(
+        query="create script",
+        project_id=identity.project_id,
+        workspace_id=identity.workspace_id,
+        repo_root=str(repo.resolve()),
+        memory_decision="targeted_lookup",
+        lookup_required=True,
+        lookup_ran=True,
+        memory_evidence_ready=True,
+        source_paths=["C:/vault/CodexWiki/Projects/project/status.md"],
+        rejected_reference_paths=["C:/vault/CodexWiki/Sources/other/reference.md"],
+        workstream_id="test-workstream",
+        warnings=["REFERENCE_ONLY_HIT_REJECTED"],
+    )
+
+    plan = harness_plan(
+        config,
+        HarnessPlanInput(
+            repo_root=str(repo),
+            task_id=task_id,
+            plan_summary="Create script",
+            allowed_files=["tools/TEST.py"],
+            risk_level="low",
+            require_memory_preflight=True,
+            memory_preflight=preflight,
+        ),
+    )
+
+    assert plan.ok is True
+    context = plan.data.plan.memory_context
+    assert context.preflight_required is True
+    assert context.memory_decision == "targeted_lookup"
+    assert context.lookup_ran is True
+    assert context.memory_evidence_ready is True
+    assert context.source_paths == ["C:/vault/CodexWiki/Projects/project/status.md"]
+    assert context.rejected_reference_paths == ["C:/vault/CodexWiki/Sources/other/reference.md"]
+    assert context.workstream_id == "test-workstream"
 
 
 def test_harness_finish_blocks_missing_required_verification(tmp_path: Path) -> None:
