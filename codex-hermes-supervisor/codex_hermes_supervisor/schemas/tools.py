@@ -6,7 +6,18 @@ from pydantic import BaseModel, Field
 
 from .errors import ViolationItem
 from .project_memory import MemoryPreflightResult
-from .state import FinishWritebackState, GitBaseline, IdentityModel, PlanState, RiskLevel, TaskState, WritebackStatus
+from .state import (
+    FinishWritebackState,
+    GitBaseline,
+    IdentityModel,
+    PlanState,
+    RiskLevel,
+    TaskState,
+    WritebackQueueItem,
+    WritebackQueueKind,
+    WritebackQueueStatus,
+    WritebackStatus,
+)
 from .verification import LegacyTestRun, VerificationResult, VerificationStep
 from .versioning import ManagedFileDeclaration, VersionPrepareData, VersionSyncData
 from .wiki import WikiNoteData, WikiNoteInput
@@ -103,6 +114,21 @@ class HarnessCheckInput(BaseModel):
     idempotency_key: str | None = None
 
 
+class WritebackQueueInput(BaseModel):
+    kind: WritebackQueueKind = "other"
+    summary: str
+    target_path: str | None = None
+    source_refs: list[str] = Field(default_factory=list)
+    notes: str | None = None
+
+
+class WritebackQueueUpdateInput(BaseModel):
+    item_id: str
+    status: WritebackQueueStatus
+    completed_target: str | None = None
+    notes: str | None = None
+
+
 class HarnessCheckpointInput(BaseModel):
     repo_root: str
     task_id: str
@@ -110,6 +136,7 @@ class HarnessCheckpointInput(BaseModel):
     summary: str
     evidence: list[str] = Field(default_factory=list)
     next_action: str | None = None
+    writeback_items: list[WritebackQueueInput] = Field(default_factory=list)
     idempotency_key: str | None = None
 
 
@@ -117,6 +144,7 @@ class HarnessCheckpointData(BaseModel):
     recorded: bool
     worklog_path: str
     entry: str
+    queued_writeback_items: list[WritebackQueueItem] = Field(default_factory=list)
 
 
 class ChangedFileItem(BaseModel):
@@ -153,6 +181,7 @@ class HarnessFinishInput(BaseModel):
     create_wiki_note: bool = False
     require_wiki_note: bool = False
     writeback: FinishWritebackInput | None = None
+    writeback_queue_updates: list[WritebackQueueUpdateInput] = Field(default_factory=list)
     require_writeback_status: bool = False
     finish_even_with_warnings: bool = False
     idempotency_key: str | None = None

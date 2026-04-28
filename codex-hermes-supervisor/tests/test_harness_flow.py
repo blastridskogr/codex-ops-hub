@@ -209,6 +209,172 @@ def test_harness_finish_records_completed_writeback_status(tmp_path: Path) -> No
     assert finished.data.state.finish_writeback.completed_targets == ["CodexWiki/Tasks/project/log.md"]
 
 
+def test_harness_checkpoint_queues_writeback_item(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+
+    begin = harness_begin(config, HarnessBeginInput(repo_root=str(repo), task="create script"))
+    task_id = begin.data.task_id
+
+    checkpoint = harness_checkpoint_tool(
+        config,
+        HarnessCheckpointInput(
+            repo_root=str(repo),
+            task_id=task_id,
+            kind="decision",
+            summary="Need to record durable design decision.",
+            writeback_items=[
+                {
+                    "kind": "decision",
+                    "summary": "Document the selected writeback queue design.",
+                    "target_path": "CodexWiki/Decisions/project/writeback-queue.md",
+                    "source_refs": ["task:test"],
+                }
+            ],
+        ),
+    )
+
+    assert checkpoint.ok is True
+    assert checkpoint.data.queued_writeback_items[0].kind == "decision"
+    assert checkpoint.data.queued_writeback_items[0].status == "queued"
+    assert "Queued writeback:" in checkpoint.data.entry
+
+
+def test_harness_finish_blocks_required_writeback_with_open_queue(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+
+    begin = harness_begin(config, HarnessBeginInput(repo_root=str(repo), task="create script"))
+    task_id = begin.data.task_id
+    plan = harness_plan(
+        config,
+        HarnessPlanInput(
+            repo_root=str(repo),
+            task_id=task_id,
+            plan_summary="Create script",
+            allowed_files=["tools/TEST.py"],
+            risk_level="low",
+        ),
+    )
+    assert plan.ok is True
+    checkpoint = harness_checkpoint_tool(
+        config,
+        HarnessCheckpointInput(
+            repo_root=str(repo),
+            task_id=task_id,
+            kind="decision",
+            summary="Queue required durable writeback.",
+            writeback_items=[{"kind": "decision", "summary": "Write decision note."}],
+        ),
+    )
+    assert checkpoint.ok is True
+
+    finished = harness_finish_tool(
+        config,
+        HarnessFinishInput(
+            repo_root=str(repo),
+            task_id=task_id,
+            summary="Implementation complete but writeback still open.",
+            require_writeback_status=True,
+        ),
+    )
+
+    assert finished.ok is False
+    assert finished.errors
+    assert finished.errors[0].code == "WRITEBACK_QUEUE_INCOMPLETE"
+
+
+def test_harness_finish_completes_writeback_queue_updates(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+
+    begin = harness_begin(config, HarnessBeginInput(repo_root=str(repo), task="create script"))
+    task_id = begin.data.task_id
+    plan = harness_plan(
+        config,
+        HarnessPlanInput(
+            repo_root=str(repo),
+            task_id=task_id,
+            plan_summary="Create script",
+            allowed_files=["tools/TEST.py"],
+            risk_level="low",
+        ),
+    )
+    assert plan.ok is True
+    checkpoint = harness_checkpoint_tool(
+        config,
+        HarnessCheckpointInput(
+            repo_root=str(repo),
+            task_id=task_id,
+            kind="decision",
+            summary="Queue required durable writeback.",
+            writeback_items=[
+                {
+                    "kind": "decision",
+                    "summary": "Write decision note.",
+                    "target_path": "CodexWiki/Decisions/project/writeback-queue.md",
+                }
+            ],
+        ),
+    )
+    item_id = checkpoint.data.queued_writeback_items[0].item_id
+
+    finished = harness_finish_tool(
+        config,
+        HarnessFinishInput(
+            repo_root=str(repo),
+            task_id=task_id,
+            summary="Implementation and durable writeback complete.",
+            require_writeback_status=True,
+            writeback_queue_updates=[
+                {
+                    "item_id": item_id,
+                    "status": "completed",
+                    "completed_target": "CodexWiki/Decisions/project/writeback-queue.md",
+                }
+            ],
+        ),
+    )
+
+    assert finished.ok is True
+    assert finished.data.writeback.status == "completed"
+    assert finished.data.state.writeback_queue[0].status == "completed"
+    assert finished.data.state.finish_writeback.completed_targets == ["CodexWiki/Decisions/project/writeback-queue.md"]
+
+
+def test_harness_finish_rejects_unknown_writeback_queue_update(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+
+    begin = harness_begin(config, HarnessBeginInput(repo_root=str(repo), task="create script"))
+    task_id = begin.data.task_id
+    plan = harness_plan(
+        config,
+        HarnessPlanInput(
+            repo_root=str(repo),
+            task_id=task_id,
+            plan_summary="Create script",
+            allowed_files=["tools/TEST.py"],
+            risk_level="low",
+        ),
+    )
+    assert plan.ok is True
+
+    finished = harness_finish_tool(
+        config,
+        HarnessFinishInput(
+            repo_root=str(repo),
+            task_id=task_id,
+            summary="Try invalid queue update.",
+            writeback_queue_updates=[{"item_id": "missing", "status": "completed"}],
+        ),
+    )
+
+    assert finished.ok is False
+    assert finished.errors
+    assert finished.errors[0].code == "WRITEBACK_QUEUE_ITEM_NOT_FOUND"
+
+
 def test_harness_finish_blocks_missing_required_verification(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     config = _config(tmp_path)

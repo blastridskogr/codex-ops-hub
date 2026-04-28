@@ -19,7 +19,7 @@ from codex_hermes_supervisor.integrations.hermes import HermesDirectModeError, a
 from codex_hermes_supervisor.integrations.obsidian import write_wiki_note
 from codex_hermes_supervisor.schemas.errors import ErrorItem, ViolationItem
 from codex_hermes_supervisor.schemas.responses import ResponseEnvelope
-from codex_hermes_supervisor.schemas.state import FinishWritebackState, PlanMemoryContext, StrictWriteRecord, TaskState
+from codex_hermes_supervisor.schemas.state import FinishWritebackState, PlanMemoryContext, StrictWriteRecord, TaskState, WritebackQueueItem
 from codex_hermes_supervisor.schemas.tools import (
     HarnessBeginData,
     HarnessBeginInput,
@@ -63,6 +63,21 @@ def _slug(text: str) -> str:
 
 def _random_suffix() -> str:
     return hashlib.sha256(now_local_iso().encode("utf-8")).hexdigest()[:6]
+
+
+def _writeback_queue_item_id(state: TaskState, kind: str, summary: str) -> str:
+    existing_ids = {item.item_id for item in state.writeback_queue}
+    base = f"wb-{len(state.writeback_queue) + 1:04d}-{_slug(f'{kind}-{summary}')}"
+    if base not in existing_ids:
+        return base
+    index = 2
+    while f"{base}-{index}" in existing_ids:
+        index += 1
+    return f"{base}-{index}"
+
+
+def _writeback_queue_target(item: WritebackQueueItem) -> str:
+    return item.target_path or item.item_id
 
 
 def _excerpt_text(text: str, max_chars: int, policy: str) -> tuple[str, bool]:
@@ -454,12 +469,33 @@ def harness_checkpoint_tool(config: SupervisorConfig, payload: HarnessCheckpoint
     except StateStoreError:
         return _error("harness_checkpoint", "STATE_NOT_FOUND", "No active state found for this workspace.")
 
+    writeback_texts: list[str] = []
+    for item in payload.writeback_items:
+        writeback_texts.append(item.summary)
+        if item.target_path:
+            writeback_texts.append(item.target_path)
+        writeback_texts.extend(item.source_refs)
+        if item.notes:
+            writeback_texts.append(item.notes)
     try:
-        ensure_safe_text(payload.summary, *payload.evidence, *( [payload.next_action] if payload.next_action else [] ))
+        ensure_safe_text(payload.summary, *payload.evidence, *( [payload.next_action] if payload.next_action else [] ), *writeback_texts)
     except SecretScanError:
         return _error("harness_checkpoint", "SECRET_DETECTED", "Sensitive or raw content cannot be persisted.")
 
     with _lock_for(store, state, "harness_checkpoint", config):
+        queued_writeback_items: list[WritebackQueueItem] = []
+        for item in payload.writeback_items:
+            queued = WritebackQueueItem(
+                item_id=_writeback_queue_item_id(state, item.kind, item.summary),
+                kind=item.kind,
+                summary=item.summary,
+                target_path=item.target_path,
+                source_refs=item.source_refs,
+                created_at=now_local_iso(),
+                notes=item.notes,
+            )
+            state.writeback_queue.append(queued)
+            queued_writeback_items.append(queued)
         lines = [f"### Checkpoint: {payload.kind}", "", payload.summary.strip()]
         if payload.evidence:
             lines.append("")
@@ -468,11 +504,22 @@ def harness_checkpoint_tool(config: SupervisorConfig, payload: HarnessCheckpoint
         if payload.next_action:
             lines.append("")
             lines.append(f"Next action: {payload.next_action.strip()}")
+        if queued_writeback_items:
+            lines.append("")
+            lines.append("Queued writeback:")
+            for item in queued_writeback_items:
+                target = f" -> {item.target_path}" if item.target_path else ""
+                lines.append(f"- {item.item_id}: {item.kind}: {item.summary}{target}")
         entry = "\n".join(lines).rstrip()
         worklog_path = append_worklog_entry(store.tasks_dir, entry, source="harness_checkpoint")
         state.updated_at = now_local_iso()
         store.save_state(state)
-        data = HarnessCheckpointData(recorded=True, worklog_path=str(worklog_path), entry=entry)
+        data = HarnessCheckpointData(
+            recorded=True,
+            worklog_path=str(worklog_path),
+            entry=entry,
+            queued_writeback_items=queued_writeback_items,
+        )
         key = natural_key("harness_checkpoint", state.task_id, payload.idempotency_key or payload.kind, payload.summary)
         record_result(store, key=key, tool="harness_checkpoint", task_id=state.task_id, payload=payload.model_dump(), result=data.model_dump())
         return ResponseEnvelope.success(tool="harness_checkpoint", data=data)
@@ -784,6 +831,12 @@ def harness_finish_tool(config: SupervisorConfig, payload: HarnessFinishInput) -
         writeback_texts.extend(payload.writeback.warnings)
         if payload.writeback.blocked_reason:
             writeback_texts.append(payload.writeback.blocked_reason)
+    for update in payload.writeback_queue_updates:
+        writeback_texts.append(update.item_id)
+        if update.completed_target:
+            writeback_texts.append(update.completed_target)
+        if update.notes:
+            writeback_texts.append(update.notes)
     try:
         ensure_safe_text(payload.summary, *payload.decisions, *payload.failed_attempts, *writeback_texts)
     except SecretScanError:
@@ -807,6 +860,21 @@ def harness_finish_tool(config: SupervisorConfig, payload: HarnessFinishInput) -
             final_check.violations.extend(verification_violations)
             return ResponseEnvelope.success(tool="harness_finish", data=final_check)
         final_check.violations.extend(verification_violations)
+        for update in payload.writeback_queue_updates:
+            item = next((candidate for candidate in state.writeback_queue if candidate.item_id == update.item_id), None)
+            if item is None:
+                return _error(
+                    "harness_finish",
+                    "WRITEBACK_QUEUE_ITEM_NOT_FOUND",
+                    f"writeback queue item not found: {update.item_id}",
+                )
+            item.status = update.status
+            if update.completed_target:
+                item.target_path = update.completed_target
+            if update.notes:
+                item.notes = update.notes
+            if update.status == "completed":
+                item.completed_at = now_local_iso()
         worklog_path = append_worklog_entry(store.tasks_dir, payload.summary)
         wiki_data = None
         if payload.create_wiki_note:
@@ -841,6 +909,11 @@ def harness_finish_tool(config: SupervisorConfig, payload: HarnessFinishInput) -
                 warnings=payload.writeback.warnings,
                 recorded_at=now_local_iso(),
             )
+            completed_targets = set(payload.writeback.completed_targets)
+            for item in state.writeback_queue:
+                if item.status != "completed" and item.target_path and item.target_path in completed_targets:
+                    item.status = "completed"
+                    item.completed_at = now_local_iso()
         elif wiki_data and wiki_data.wikilink:
             finish_writeback = FinishWritebackState(
                 required=writeback_required,
@@ -849,13 +922,35 @@ def harness_finish_tool(config: SupervisorConfig, payload: HarnessFinishInput) -
                 completed_targets=[wiki_data.wikilink],
                 recorded_at=now_local_iso(),
             )
+        elif state.writeback_queue:
+            queue_targets = [_writeback_queue_target(item) for item in state.writeback_queue]
+            completed_queue_targets = [_writeback_queue_target(item) for item in state.writeback_queue if item.status == "completed"]
+            finish_writeback = FinishWritebackState(
+                required=writeback_required,
+                status="completed" if len(completed_queue_targets) == len(queue_targets) else "deferred",
+                targets=queue_targets,
+                completed_targets=completed_queue_targets,
+                warnings=[f"open writeback queue items: {len(queue_targets) - len(completed_queue_targets)}"]
+                if len(completed_queue_targets) != len(queue_targets)
+                else [],
+                recorded_at=now_local_iso(),
+            )
         else:
             finish_writeback = FinishWritebackState(required=writeback_required, recorded_at=now_local_iso())
         if writeback_required and payload.writeback is None and not (wiki_data and wiki_data.wikilink):
+            if not state.writeback_queue:
+                return _error(
+                    "harness_finish",
+                    "WRITEBACK_STATUS_REQUIRED",
+                    "writeback status is required before finish in the active memory profile.",
+                )
+        open_queue_items = [item for item in state.writeback_queue if item.status != "completed"]
+        if writeback_required and open_queue_items:
+            open_ids = ", ".join(item.item_id for item in open_queue_items[:5])
             return _error(
                 "harness_finish",
-                "WRITEBACK_STATUS_REQUIRED",
-                "writeback status is required before finish in the active memory profile.",
+                "WRITEBACK_QUEUE_INCOMPLETE",
+                f"writeback queue has incomplete items before finish: {open_ids}",
             )
         if writeback_required and finish_writeback.status in {"deferred", "blocked"}:
             return _error(

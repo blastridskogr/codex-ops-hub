@@ -66,6 +66,25 @@ write. `deferred` and `blocked` writeback statuses are not accepted as
 completion. A completed writeback must list every target in
 `completed_targets`.
 
+Durable outcomes can be queued during work through `harness_checkpoint`
+`writeback_items`. Use this when a decision, bug root cause, workflow, task log,
+handoff, source/provenance update, or project status change must be written back
+before the task is formally completed.
+
+```json
+{
+  "kind": "decision",
+  "summary": "Document the selected writeback queue design.",
+  "target_path": "CodexWiki/Decisions/[project-id]/writeback-queue.md",
+  "source_refs": ["task:[task-id]"]
+}
+```
+
+At finish, pass `writeback_queue_updates` to mark queued items as `completed`,
+`deferred`, or `blocked`. When writeback status is required, open queue items
+block `harness_finish`. Completed queue items can be used to derive a completed
+finish writeback status without a separate `writeback` object.
+
 `memory_lookup` has a bounded lookup budget. The default CLI/MCP budget is 55
 seconds so it can return a degraded context pack before a normal MCP tool
 timeout. Use `--timeout-seconds [seconds]` on the CLI for acceptance testing.

@@ -20,17 +20,20 @@
 - Optional `harness_finish` writeback status gate through
   `memory_policy.require_finish_writeback_status` or per-finish
   `require_writeback_status`.
+- Writeback queue automation through `harness_checkpoint` `writeback_items` and
+  `harness_finish` `writeback_queue_updates` for durable decisions, bugs,
+  workflows, task logs, handoffs, status changes, and source/provenance updates.
 - Source intake Phase 0 schema baseline: `SourceManifest`, `SourceNote`, and
   `ImportedLesson` frontmatter.
 - Source intake Phase 3A CLI skeleton:
   `source-status`, `source-ingest`, `source-review`, and `source-compile`
   dry-run planning for local repo files.
+- `source-promote` for reviewed source notes with operator-supplied summaries.
 
 ## Next
 
 - Lightweight source compile apply for reviewed repo text, Markdown, reviewed
   logs, and reviewed conversations.
-- `source-promote --dry-run`.
 - Cross-project candidate/import/promote workflow.
 - Source governance doctor.
 - Synthetic cross-project validation.
@@ -38,7 +41,5 @@
 ## Later
 
 - Heavy source ingest for PDF, DOCX, XLSX, PPTX, images, web pages, and archives.
-- Writeback queue automation for durable decisions, bugs, workflows, status
-  changes, and source/provenance updates.
 - AppServer-supervised controller track.
 - Project-local `docs/wiki` portability track.

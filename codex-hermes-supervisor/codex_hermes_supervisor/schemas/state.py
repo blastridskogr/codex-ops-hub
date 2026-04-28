@@ -13,6 +13,8 @@ from .versioning import ManagedFileDeclaration, ManagedFileState
 Phase = Literal["IDLE", "STARTED", "PLANNED", "CHECKED", "FINISHED", "ARCHIVED"]
 RiskLevel = Literal["low", "medium", "high"]
 WritebackStatus = Literal["not_required", "completed", "deferred", "blocked"]
+WritebackQueueKind = Literal["project_status", "decision", "bug", "workflow", "source", "task_log", "handoff", "other"]
+WritebackQueueStatus = Literal["queued", "completed", "deferred", "blocked"]
 
 
 class IdentityModel(BaseModel):
@@ -71,6 +73,18 @@ class FinishWritebackState(BaseModel):
     recorded_at: str | None = None
 
 
+class WritebackQueueItem(BaseModel):
+    item_id: str
+    kind: WritebackQueueKind = "other"
+    summary: str
+    target_path: str | None = None
+    source_refs: list[str] = Field(default_factory=list)
+    status: WritebackQueueStatus = "queued"
+    created_at: str
+    completed_at: str | None = None
+    notes: str | None = None
+
+
 class IdempotencyRecord(BaseModel):
     key: str
     tool: str
@@ -112,5 +126,6 @@ class TaskState(BaseModel):
     verification_results: list[VerificationResult] = Field(default_factory=list)
     violations: list[ViolationItem] = Field(default_factory=list)
     wiki_notes: list[str] = Field(default_factory=list)
+    writeback_queue: list[WritebackQueueItem] = Field(default_factory=list)
     finish_writeback: FinishWritebackState = Field(default_factory=FinishWritebackState)
     handoff_written: bool = False

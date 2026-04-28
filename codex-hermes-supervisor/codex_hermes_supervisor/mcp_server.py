@@ -120,6 +120,7 @@ def build_server(profile: str) -> FastMCP:
         summary: str,
         evidence: list[str] | None = None,
         next_action: str | None = None,
+        writeback_items: list[dict] | None = None,
         idempotency_key: str | None = None,
     ):
         payload = HarnessCheckpointInput(
@@ -129,6 +130,7 @@ def build_server(profile: str) -> FastMCP:
             summary=summary,
             evidence=evidence or [],
             next_action=next_action,
+            writeback_items=writeback_items or [],
             idempotency_key=idempotency_key,
         )
         return harness_checkpoint_tool(config, payload).model_dump()
@@ -145,6 +147,7 @@ def build_server(profile: str) -> FastMCP:
         create_wiki_note: bool = False,
         require_wiki_note: bool = False,
         writeback: dict | None = None,
+        writeback_queue_updates: list[dict] | None = None,
         require_writeback_status: bool = False,
         finish_even_with_warnings: bool = False,
         idempotency_key: str | None = None,
@@ -160,6 +163,7 @@ def build_server(profile: str) -> FastMCP:
             create_wiki_note=create_wiki_note,
             require_wiki_note=require_wiki_note,
             writeback=writeback,
+            writeback_queue_updates=writeback_queue_updates or [],
             require_writeback_status=require_writeback_status,
             finish_even_with_warnings=finish_even_with_warnings,
             idempotency_key=idempotency_key,
