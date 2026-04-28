@@ -136,6 +136,79 @@ def test_harness_plan_records_memory_preflight_context(tmp_path: Path) -> None:
     assert context.workstream_id == "test-workstream"
 
 
+def test_harness_finish_requires_writeback_status_when_enabled(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+    config.memory_policy.require_finish_writeback_status = True
+
+    begin = harness_begin(config, HarnessBeginInput(repo_root=str(repo), task="create script"))
+    task_id = begin.data.task_id
+    plan = harness_plan(
+        config,
+        HarnessPlanInput(
+            repo_root=str(repo),
+            task_id=task_id,
+            plan_summary="Create script",
+            allowed_files=["tools/TEST.py"],
+            risk_level="low",
+        ),
+    )
+    assert plan.ok is True
+
+    finished = harness_finish_tool(
+        config,
+        HarnessFinishInput(
+            repo_root=str(repo),
+            task_id=task_id,
+            summary="No durable writeback status.",
+        ),
+    )
+
+    assert finished.ok is False
+    assert finished.errors
+    assert finished.errors[0].code == "WRITEBACK_STATUS_REQUIRED"
+
+
+def test_harness_finish_records_completed_writeback_status(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+
+    begin = harness_begin(config, HarnessBeginInput(repo_root=str(repo), task="create script"))
+    task_id = begin.data.task_id
+    plan = harness_plan(
+        config,
+        HarnessPlanInput(
+            repo_root=str(repo),
+            task_id=task_id,
+            plan_summary="Create script",
+            allowed_files=["tools/TEST.py"],
+            risk_level="low",
+        ),
+    )
+    assert plan.ok is True
+
+    finished = harness_finish_tool(
+        config,
+        HarnessFinishInput(
+            repo_root=str(repo),
+            task_id=task_id,
+            summary="Created script.",
+            require_writeback_status=True,
+            writeback={
+                "status": "completed",
+                "targets": ["CodexWiki/Tasks/project/log.md"],
+                "completed_targets": ["CodexWiki/Tasks/project/log.md"],
+            },
+        ),
+    )
+
+    assert finished.ok is True
+    assert finished.data.writeback is not None
+    assert finished.data.writeback.required is True
+    assert finished.data.writeback.status == "completed"
+    assert finished.data.state.finish_writeback.completed_targets == ["CodexWiki/Tasks/project/log.md"]
+
+
 def test_harness_finish_blocks_missing_required_verification(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     config = _config(tmp_path)

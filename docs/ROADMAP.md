@@ -17,6 +17,9 @@
 - Optional `harness_plan` preflight gate through
   `memory_policy.require_memory_preflight_for_plan` or per-plan
   `require_memory_preflight`.
+- Optional `harness_finish` writeback status gate through
+  `memory_policy.require_finish_writeback_status` or per-finish
+  `require_writeback_status`.
 - Source intake Phase 0 schema baseline: `SourceManifest`, `SourceNote`, and
   `ImportedLesson` frontmatter.
 - Source intake Phase 3A CLI skeleton:
@@ -35,6 +38,7 @@
 ## Later
 
 - Heavy source ingest for PDF, DOCX, XLSX, PPTX, images, web pages, and archives.
-- Strict active-memory finish gate with writeback status in `harness_finish`.
+- Writeback queue automation for durable decisions, bugs, workflows, status
+  changes, and source/provenance updates.
 - AppServer-supervised controller track.
 - Project-local `docs/wiki` portability track.

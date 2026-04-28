@@ -12,6 +12,7 @@ from .versioning import ManagedFileDeclaration, ManagedFileState
 
 Phase = Literal["IDLE", "STARTED", "PLANNED", "CHECKED", "FINISHED", "ARCHIVED"]
 RiskLevel = Literal["low", "medium", "high"]
+WritebackStatus = Literal["not_required", "completed", "deferred", "blocked"]
 
 
 class IdentityModel(BaseModel):
@@ -60,6 +61,16 @@ class PlanState(BaseModel):
     memory_context: PlanMemoryContext = Field(default_factory=PlanMemoryContext)
 
 
+class FinishWritebackState(BaseModel):
+    required: bool = False
+    status: WritebackStatus = "not_required"
+    targets: list[str] = Field(default_factory=list)
+    completed_targets: list[str] = Field(default_factory=list)
+    blocked_reason: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    recorded_at: str | None = None
+
+
 class IdempotencyRecord(BaseModel):
     key: str
     tool: str
@@ -101,4 +112,5 @@ class TaskState(BaseModel):
     verification_results: list[VerificationResult] = Field(default_factory=list)
     violations: list[ViolationItem] = Field(default_factory=list)
     wiki_notes: list[str] = Field(default_factory=list)
+    finish_writeback: FinishWritebackState = Field(default_factory=FinishWritebackState)
     handoff_written: bool = False

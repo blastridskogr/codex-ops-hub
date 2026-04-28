@@ -144,6 +144,8 @@ def build_server(profile: str) -> FastMCP:
         failed_attempts: list[str] | None = None,
         create_wiki_note: bool = False,
         require_wiki_note: bool = False,
+        writeback: dict | None = None,
+        require_writeback_status: bool = False,
         finish_even_with_warnings: bool = False,
         idempotency_key: str | None = None,
     ):
@@ -157,6 +159,8 @@ def build_server(profile: str) -> FastMCP:
             failed_attempts=failed_attempts or [],
             create_wiki_note=create_wiki_note,
             require_wiki_note=require_wiki_note,
+            writeback=writeback,
+            require_writeback_status=require_writeback_status,
             finish_even_with_warnings=finish_even_with_warnings,
             idempotency_key=idempotency_key,
         )

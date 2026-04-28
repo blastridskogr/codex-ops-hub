@@ -54,6 +54,18 @@ When enabled, `harness_plan` rejects plans without a valid `memory_preflight`
 result, rejects preflight blockers, and records the preflight source paths,
 reference-only rejects, warnings, and memory decision in task state.
 
+`harness_finish` can also require explicit durable writeback status:
+
+```yaml
+memory_policy:
+  require_finish_writeback_status: true
+```
+
+When enabled, finish requires a `writeback` object or a successful wiki note
+write. `deferred` and `blocked` writeback statuses are not accepted as
+completion. A completed writeback must list every target in
+`completed_targets`.
+
 `memory_lookup` has a bounded lookup budget. The default CLI/MCP budget is 55
 seconds so it can return a degraded context pack before a normal MCP tool
 timeout. Use `--timeout-seconds [seconds]` on the CLI for acceptance testing.

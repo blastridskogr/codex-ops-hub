@@ -136,6 +136,7 @@ class MemoryPolicyConfig(BaseModel):
     store_secrets: bool = False
     max_hermes_summary_chars: int = 1200
     require_memory_preflight_for_plan: bool = False
+    require_finish_writeback_status: bool = False
 
 
 class TaskRecordsConfig(BaseModel):

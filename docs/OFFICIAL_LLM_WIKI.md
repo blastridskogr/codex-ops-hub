@@ -65,6 +65,11 @@ Do not read the entire vault for every task.
 `require_memory_preflight` flag is enabled. In that mode, planning must include
 a valid `memory_preflight` result.
 
+`harness_finish` can enforce durable writeback status when
+`memory_policy.require_finish_writeback_status` or the per-finish
+`require_writeback_status` flag is enabled. In that mode, completed work must
+either write a wiki note or provide completed writeback targets before finish.
+
 ## Cross-Project Knowledge
 
 Whole-vault search may find related notes from other projects.

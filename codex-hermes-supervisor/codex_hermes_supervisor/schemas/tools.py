@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from .errors import ViolationItem
 from .project_memory import MemoryPreflightResult
-from .state import GitBaseline, IdentityModel, PlanState, RiskLevel, TaskState
+from .state import FinishWritebackState, GitBaseline, IdentityModel, PlanState, RiskLevel, TaskState, WritebackStatus
 from .verification import LegacyTestRun, VerificationResult, VerificationStep
 from .versioning import ManagedFileDeclaration, VersionPrepareData, VersionSyncData
 from .wiki import WikiNoteData, WikiNoteInput
@@ -134,6 +134,14 @@ class HarnessCheckData(BaseModel):
     active_mirror_checks: list[dict[str, object]] = Field(default_factory=list)
 
 
+class FinishWritebackInput(BaseModel):
+    status: WritebackStatus
+    targets: list[str] = Field(default_factory=list)
+    completed_targets: list[str] = Field(default_factory=list)
+    blocked_reason: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class HarnessFinishInput(BaseModel):
     repo_root: str
     task_id: str
@@ -144,6 +152,8 @@ class HarnessFinishInput(BaseModel):
     failed_attempts: list[str] = Field(default_factory=list)
     create_wiki_note: bool = False
     require_wiki_note: bool = False
+    writeback: FinishWritebackInput | None = None
+    require_writeback_status: bool = False
     finish_even_with_warnings: bool = False
     idempotency_key: str | None = None
 
@@ -162,6 +172,7 @@ class HarnessFinishData(BaseModel):
     worklog_path: str
     handoff: HandoffData | None = None
     wiki_note: WikiNoteData | None = None
+    writeback: FinishWritebackState | None = None
     state: TaskState | None = None
 
 

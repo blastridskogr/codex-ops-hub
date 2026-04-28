@@ -19,7 +19,7 @@ from codex_hermes_supervisor.integrations.hermes import HermesDirectModeError, a
 from codex_hermes_supervisor.integrations.obsidian import write_wiki_note
 from codex_hermes_supervisor.schemas.errors import ErrorItem, ViolationItem
 from codex_hermes_supervisor.schemas.responses import ResponseEnvelope
-from codex_hermes_supervisor.schemas.state import PlanMemoryContext, StrictWriteRecord, TaskState
+from codex_hermes_supervisor.schemas.state import FinishWritebackState, PlanMemoryContext, StrictWriteRecord, TaskState
 from codex_hermes_supervisor.schemas.tools import (
     HarnessBeginData,
     HarnessBeginInput,
@@ -777,8 +777,15 @@ def harness_finish_tool(config: SupervisorConfig, payload: HarnessFinishInput) -
         worklog_path = str(store.tasks_dir / "worklog.md")
         return ResponseEnvelope.success(tool="harness_finish", data=HarnessFinishData(phase="FINISHED", worklog_path=worklog_path, state=state))
 
+    writeback_texts: list[str] = []
+    if payload.writeback is not None:
+        writeback_texts.extend(payload.writeback.targets)
+        writeback_texts.extend(payload.writeback.completed_targets)
+        writeback_texts.extend(payload.writeback.warnings)
+        if payload.writeback.blocked_reason:
+            writeback_texts.append(payload.writeback.blocked_reason)
     try:
-        ensure_safe_text(payload.summary, *payload.decisions, *payload.failed_attempts)
+        ensure_safe_text(payload.summary, *payload.decisions, *payload.failed_attempts, *writeback_texts)
     except SecretScanError:
         return _error("harness_finish", "SECRET_DETECTED", "Sensitive or raw content cannot be persisted.")
 
@@ -823,6 +830,48 @@ def harness_finish_tool(config: SupervisorConfig, payload: HarnessFinishInput) -
                 return _error("harness_finish", "WIKI_NOTE_WRITE_FAILED", wiki_data.message)
             if wiki_data.wikilink:
                 state.wiki_notes.append(wiki_data.wikilink)
+        writeback_required = config.memory_policy.require_finish_writeback_status or payload.require_writeback_status
+        if payload.writeback is not None:
+            finish_writeback = FinishWritebackState(
+                required=writeback_required,
+                status=payload.writeback.status,
+                targets=payload.writeback.targets,
+                completed_targets=payload.writeback.completed_targets,
+                blocked_reason=payload.writeback.blocked_reason,
+                warnings=payload.writeback.warnings,
+                recorded_at=now_local_iso(),
+            )
+        elif wiki_data and wiki_data.wikilink:
+            finish_writeback = FinishWritebackState(
+                required=writeback_required,
+                status="completed",
+                targets=[wiki_data.wikilink],
+                completed_targets=[wiki_data.wikilink],
+                recorded_at=now_local_iso(),
+            )
+        else:
+            finish_writeback = FinishWritebackState(required=writeback_required, recorded_at=now_local_iso())
+        if writeback_required and payload.writeback is None and not (wiki_data and wiki_data.wikilink):
+            return _error(
+                "harness_finish",
+                "WRITEBACK_STATUS_REQUIRED",
+                "writeback status is required before finish in the active memory profile.",
+            )
+        if writeback_required and finish_writeback.status in {"deferred", "blocked"}:
+            return _error(
+                "harness_finish",
+                "WRITEBACK_NOT_COMPLETED",
+                "writeback status must be completed or not_required before finish.",
+            )
+        if finish_writeback.status == "completed":
+            missing_targets = [target for target in finish_writeback.targets if target not in finish_writeback.completed_targets]
+            if missing_targets:
+                return _error(
+                    "harness_finish",
+                    "WRITEBACK_TARGETS_INCOMPLETE",
+                    "writeback status is completed but not all targets are listed as completed.",
+                )
+        state.finish_writeback = finish_writeback
         compact_summary = payload.summary[: config.memory_policy.max_hermes_summary_chars]
         if wiki_data and wiki_data.wikilink:
             compact_summary = f"{compact_summary}\n\n{wiki_data.wikilink}"
@@ -884,6 +933,7 @@ def harness_finish_tool(config: SupervisorConfig, payload: HarnessFinishInput) -
             worklog_path=str(worklog_path),
             handoff=handoff,
             wiki_note=wiki_data,
+            writeback=finish_writeback,
             state=state,
         )
         key = natural_key("harness_finish", state.task_id, payload.idempotency_key or "")
