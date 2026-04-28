@@ -857,6 +857,34 @@ def _path_maps_to_project(path: Path, project_id: str | None) -> bool:
     )
 
 
+def _frontmatter_string(frontmatter: dict[str, object], key: str) -> str | None:
+    value = frontmatter.get(key)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _reference_only_status(
+    *,
+    source_status: str | None,
+    source_review_status: str | None,
+    source_evidence_class: str | None,
+) -> str | None:
+    evidence_class = (source_evidence_class or "").lower()
+    review_status = (source_review_status or "").lower()
+    status = (source_status or "").lower()
+    if evidence_class == "operational_entrypoint":
+        return None
+    if review_status == "rejected" or status == "rejected":
+        return "reference_candidate_rejected"
+    if status in {"stale", "superseded", "archived"}:
+        return "reference_candidate_stale"
+    if evidence_class == "reference_only" or review_status == "unverified" or status in {"candidate", "draft"}:
+        return "reference_candidate_unverified"
+    return None
+
+
 def _evidence_metadata_for_source(path: Path, *, kind: str, current_project_id: str | None) -> dict[str, object]:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -871,6 +899,10 @@ def _evidence_metadata_for_source(path: Path, *, kind: str, current_project_id: 
 
     hit_scope: str | None = None
     hit_project_id: str | None = None
+    source_status: str | None = None
+    source_review_status: str | None = None
+    source_evidence_class: str | None = None
+    source_confidence: str | None = None
     if kind == "manifest":
         try:
             manifest = ProjectMemoryManifest.model_validate(yaml.safe_load(text) or {})
@@ -884,6 +916,10 @@ def _evidence_metadata_for_source(path: Path, *, kind: str, current_project_id: 
         raw_project_id = frontmatter.get("project_id")
         hit_scope = str(raw_scope) if raw_scope else None
         hit_project_id = str(raw_project_id) if raw_project_id else None
+        source_status = _frontmatter_string(frontmatter, "status")
+        source_review_status = _frontmatter_string(frontmatter, "review_status")
+        source_evidence_class = _frontmatter_string(frontmatter, "evidence_class")
+        source_confidence = _frontmatter_string(frontmatter, "confidence")
         if hit_project_id and hit_scope is None:
             hit_scope = "project"
         if hit_scope is None and _path_maps_to_project(path, current_project_id):
@@ -904,6 +940,14 @@ def _evidence_metadata_for_source(path: Path, *, kind: str, current_project_id: 
     else:
         evidence_allowed = False
         evidence_status = "reference_candidate_unscoped"
+    reference_status = _reference_only_status(
+        source_status=source_status,
+        source_review_status=source_review_status,
+        source_evidence_class=source_evidence_class,
+    )
+    if evidence_allowed and reference_status:
+        evidence_allowed = False
+        evidence_status = reference_status
 
     return {
         "source_read": True,
@@ -912,6 +956,10 @@ def _evidence_metadata_for_source(path: Path, *, kind: str, current_project_id: 
         "hit_scope": hit_scope,
         "hit_project_id": hit_project_id,
         "current_project_id": current_project_id,
+        "source_status": source_status,
+        "source_review_status": source_review_status,
+        "source_evidence_class": source_evidence_class,
+        "source_confidence": source_confidence,
         "evidence_allowed": evidence_allowed,
         "evidence_status": evidence_status,
     }
@@ -926,6 +974,7 @@ def _enrich_search_hits_with_evidence(
     cross_project = 0
     unreadable = 0
     unscoped = 0
+    unverified = 0
     for hit in hits:
         metadata = _evidence_metadata_for_source(Path(hit.path), kind=hit.kind, current_project_id=current_project_id)
         status = str(metadata.get("evidence_status") or "")
@@ -935,6 +984,8 @@ def _enrich_search_hits_with_evidence(
             cross_project += 1
         elif status == "reference_candidate_unscoped":
             unscoped += 1
+        elif status in {"reference_candidate_unverified", "reference_candidate_stale", "reference_candidate_rejected"}:
+            unverified += 1
         project_id = metadata.get("hit_project_id") or hit.project_id
         enriched.append(hit.model_copy(update={**metadata, "project_id": project_id}))
     warnings: list[str] = []
@@ -944,6 +995,8 @@ def _enrich_search_hits_with_evidence(
         warnings.append(f"MEMORY_SEARCH_UNSCOPED_HITS_REFERENCE_ONLY: {unscoped} hit(s) were not allowed as evidence.")
     if unreadable:
         warnings.append(f"MEMORY_SEARCH_UNREADABLE_HITS_NOT_EVIDENCE: {unreadable} hit(s) could not be read as source evidence.")
+    if unverified:
+        warnings.append(f"MEMORY_SEARCH_UNVERIFIED_HITS_REFERENCE_ONLY: {unverified} hit(s) were unverified, stale, rejected, or reference-only.")
     return enriched, warnings
 
 

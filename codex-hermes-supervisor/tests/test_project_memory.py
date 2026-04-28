@@ -303,6 +303,43 @@ def test_memory_lookup_keeps_cross_project_hits_reference_only(tmp_path: Path, m
     assert any("MEMORY_LOOKUP_REFERENCE_ONLY_HITS" in warning for warning in result.warnings)
 
 
+def test_memory_lookup_keeps_unverified_project_notes_reference_only(tmp_path: Path, monkeypatch) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr("codex_hermes_supervisor.core.paths.user_home", lambda: home)
+    monkeypatch.setattr("codex_hermes_supervisor.core.paths.supervisor_root", lambda: home / ".codex-hermes")
+    monkeypatch.setattr("codex_hermes_supervisor.integrations.hermes.user_home", lambda: home)
+
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+    registration = register_project(repo, name="current-project")
+    project_id = registration.project_id
+    wiki_root = Path(config.obsidian.vault_root) / config.obsidian.wiki_root
+    candidate_note = wiki_root / "Projects" / project_id / "candidate-note.md"
+    candidate_note.parent.mkdir(parents=True, exist_ok=True)
+    candidate_note.write_text(
+        "---\n"
+        "scope: project\n"
+        f"project_id: {project_id}\n"
+        "status: candidate\n"
+        "review_status: unverified\n"
+        "confidence: low\n"
+        "evidence_class: reference_only\n"
+        "---\n\n"
+        "# Candidate Note\n\n"
+        "unique-candidate-memory should remain reference-only until review.\n",
+        encoding="utf-8",
+    )
+
+    result = memory_lookup("unique-candidate-memory", repo_root=repo, config=config, mode="keyword")
+
+    assert result.project_id == project_id
+    assert not result.context_pack.sources
+    assert str(candidate_note) in result.context_pack.rejected_reference_paths
+    assert any("MEMORY_SEARCH_UNVERIFIED_HITS_REFERENCE_ONLY" in warning for warning in result.warnings)
+    assert any("MEMORY_LOOKUP_REFERENCE_ONLY_HITS" in warning for warning in result.warnings)
+
+
 def test_memory_search_respects_custom_outbox_dir(tmp_path: Path, monkeypatch) -> None:
     home = tmp_path / "home"
     home.mkdir()

@@ -311,6 +311,10 @@ class MemorySearchHit(BaseModel):
     hit_scope: str | None = None
     hit_project_id: str | None = None
     current_project_id: str | None = None
+    source_status: str | None = None
+    source_review_status: str | None = None
+    source_evidence_class: str | None = None
+    source_confidence: str | None = None
     evidence_allowed: bool = False
     evidence_status: str = "unverified"
 
