@@ -39,12 +39,12 @@ Implemented Phase 3A skeleton:
 - `source-ingest --dry-run`.
 - `source-compile --dry-run`.
 - `source-review`.
+- `source-promote --dry-run`.
 - `codex-session-ingest --dry-run`.
 - `codex-session-compile --dry-run`.
 
 Still required before broad ingest:
 
-- `source-promote --dry-run`.
 - privacy/redaction policy.
 - archive safety policy.
 - no raw into Hermes.
@@ -61,6 +61,7 @@ The current implementation is deliberately narrow:
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest --repo "[project-root]" --path "README.md" --apply
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-review --repo "[project-root]" --source-id "[source-id]" --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-compile --repo "[project-root]" --source-id "[source-id]" --dry-run
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-promote --repo "[project-root]" --source-id "[source-id]" --memory-kind decision --title "[title]" --summary "[reviewed summary]" --promotion-reason "[why this is durable]" --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-ingest --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-ingest --apply
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-compile --dry-run
@@ -87,6 +88,11 @@ Current guarantees:
 - `source-compile --dry-run` returns planned frontmatter and note path only.
 - `source-compile --apply` writes provenance-only source notes for lightweight
   source types.
+- `source-promote --apply` requires a reviewed source plus an operator-supplied
+  summary and promotion reason. It can create `task`, `decision`, `bug`,
+  `workflow`, or reviewed `source` notes.
+- Promoted notes use `candidate_evidence`; runtime filtering still decides
+  whether the note can be used as evidence for a task.
 - `evidence_allowed` remains runtime-computed and is not note frontmatter.
 - After large compile batches, refresh QMD with an explicit embed timeout. The
   QMD batch timeout is separate from the bounded `memory_lookup` budget.

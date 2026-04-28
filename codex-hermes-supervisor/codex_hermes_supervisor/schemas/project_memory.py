@@ -22,6 +22,7 @@ SourceType = Literal[
     "archive",
     "other",
 ]
+SourcePromoteKind = Literal["task", "decision", "bug", "workflow", "source"]
 SourceLifecycleStatus = Literal[
     "raw",
     "extracted",
@@ -212,6 +213,20 @@ class SourceCompileResult(BaseModel):
     manifest_path: str
     dry_run: bool = True
     compiled: bool = False
+    planned_note_path: str | None = None
+    frontmatter: SourceNoteFrontmatter
+    warnings: list[str] = Field(default_factory=list)
+
+
+class SourcePromoteResult(BaseModel):
+    project_id: str
+    workspace_id: str
+    repo_root: str
+    manifest_path: str
+    dry_run: bool = True
+    promoted: bool = False
+    source_id: str
+    memory_kind: SourcePromoteKind
     planned_note_path: str | None = None
     frontmatter: SourceNoteFrontmatter
     warnings: list[str] = Field(default_factory=list)

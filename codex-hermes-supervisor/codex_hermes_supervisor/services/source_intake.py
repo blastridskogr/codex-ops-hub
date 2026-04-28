@@ -27,6 +27,8 @@ from codex_hermes_supervisor.schemas.project_memory import (
     SourceManifestEntry,
     SourceNoteFrontmatter,
     SourcePrivacy,
+    SourcePromoteKind,
+    SourcePromoteResult,
     SourceReviewResult,
     SourceScope,
     SourceStatusReport,
@@ -37,6 +39,13 @@ _REVIEW_REQUIRED_PRIVACY = {"private", "customer", "secret", "restricted"}
 _LIGHTWEIGHT_SOURCE_TYPES = {"repo_text", "manual", "conversation", "terminal_log"}
 _MAX_LIGHTWEIGHT_SOURCE_SIZE = 2 * 1024 * 1024
 _SESSION_ID_RE = re.compile(r"(019[0-9a-f]{5,}-[0-9a-f-]{20,})", re.IGNORECASE)
+_PROMOTION_DIRS: dict[SourcePromoteKind, str] = {
+    "task": "Tasks",
+    "decision": "Decisions",
+    "bug": "Bugs",
+    "workflow": "Workflows",
+    "source": "Sources",
+}
 
 
 def _project_dir(project_id: str) -> Path:
@@ -76,6 +85,13 @@ def _source_id_from_session_id(session_id: str, fallback_sha256: str) -> str:
     if slug:
         return f"conv-{slug[:24]}"
     return f"conv-{fallback_sha256.removeprefix('sha256:')[:12]}"
+
+
+def _safe_slug(value: str, *, fallback: str, max_chars: int = 64) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    if not slug:
+        slug = fallback
+    return slug[:max_chars].strip("-") or fallback
 
 
 def _resolve_repo_source(repo_root: Path, source_path: Path) -> Path:
@@ -354,6 +370,18 @@ def _source_note_path(config: SupervisorConfig, project_id: str, source_id: str)
     return wiki_root / "Sources" / project_id / f"{source_id}.md"
 
 
+def _promoted_note_path(config: SupervisorConfig, project_id: str, memory_kind: SourcePromoteKind, title: str, source_id: str) -> Path | None:
+    wiki_root = _obsidian_wiki_root(config)
+    if wiki_root is None:
+        return None
+    directory = _PROMOTION_DIRS[memory_kind]
+    slug = _safe_slug(title, fallback=source_id)
+    source_stem = source_id.rstrip("-") or source_id
+    if memory_kind == "source":
+        return wiki_root / directory / project_id / "promoted" / f"{source_stem}-{slug}.md"
+    return wiki_root / directory / project_id / f"{source_stem}-{slug}.md"
+
+
 def _source_note_frontmatter(entry: SourceManifestEntry, *, project_id: str, workspace_id: str | None, repo_root: str | None) -> SourceNoteFrontmatter:
     return SourceNoteFrontmatter(
         title=f"Source: {entry.source_title or entry.original_name or entry.source_id}",
@@ -375,6 +403,39 @@ def _source_note_frontmatter(entry: SourceManifestEntry, *, project_id: str, wor
         source_hashes=[entry.sha256],
         compiled_from=[entry.source_id],
         tags=["official-llm-wiki", "source-intake", f"source-type-{entry.source_type}"],
+    )
+
+
+def _promoted_note_frontmatter(
+    entry: SourceManifestEntry,
+    *,
+    project_id: str,
+    workspace_id: str | None,
+    repo_root: str | None,
+    memory_kind: SourcePromoteKind,
+    title: str,
+    confidence: str,
+) -> SourceNoteFrontmatter:
+    return SourceNoteFrontmatter(
+        title=title,
+        scope="project",
+        project_id=project_id,
+        workspace_id=workspace_id,
+        repo_root=repo_root,
+        memory_kind=memory_kind,
+        status="reviewed",
+        review_status="reviewed",
+        confidence=confidence,  # type: ignore[arg-type]
+        evidence_class="candidate_evidence",
+        source_type=entry.source_type,
+        privacy=entry.privacy,
+        source_id=entry.source_id,
+        raw_storage_uri=entry.raw_storage_uri or entry.source_uri,
+        size_bytes=entry.size_bytes,
+        source_refs=[entry.source_uri],
+        source_hashes=[entry.sha256],
+        compiled_from=[entry.source_id],
+        tags=["official-llm-wiki", "source-promote", f"memory-kind-{memory_kind}", f"source-type-{entry.source_type}"],
     )
 
 
@@ -412,6 +473,42 @@ def _source_note_body(entry: SourceManifestEntry, frontmatter: SourceNoteFrontma
     )
 
 
+def _promoted_note_body(
+    entry: SourceManifestEntry,
+    frontmatter: SourceNoteFrontmatter,
+    *,
+    summary: str,
+    promotion_reason: str,
+    reviewer: str | None,
+) -> str:
+    return (
+        f"---\n{_yaml_frontmatter(frontmatter)}\n---\n\n"
+        f"# {frontmatter.title}\n\n"
+        "This note is promoted Official LLM Wiki knowledge compiled from a\n"
+        "reviewed source. It contains an operator-provided summary and\n"
+        "provenance only; raw source content is not copied here.\n\n"
+        "## Summary\n\n"
+        f"{summary.strip()}\n\n"
+        "## Promotion\n\n"
+        f"- memory_kind: `{frontmatter.memory_kind}`\n"
+        f"- source_id: `{entry.source_id}`\n"
+        f"- source_type: `{entry.source_type}`\n"
+        f"- source_review_status: `{entry.review_status}`\n"
+        f"- promotion_reason: {promotion_reason.strip()}\n"
+        f"- reviewer: `{reviewer or ''}`\n"
+        f"- promoted_at: `{now_local_iso()}`\n\n"
+        "## Provenance\n\n"
+        f"- source_uri: `{entry.source_uri}`\n"
+        f"- raw_storage_uri: `{entry.raw_storage_uri or entry.source_uri}`\n"
+        f"- sha256: `{entry.sha256}`\n"
+        f"- size_bytes: `{entry.size_bytes}`\n\n"
+        "## Evidence Rule\n\n"
+        "This note is `candidate_evidence`. Runtime evidence filtering still\n"
+        "checks project scope, source readability, status, review metadata, and\n"
+        "hash/provenance before the note can be used in a task plan.\n"
+    )
+
+
 def _write_source_note(config: SupervisorConfig, entry: SourceManifestEntry, *, project_id: str, workspace_id: str | None, repo_root: str | None) -> Path | None:
     note_path = _source_note_path(config, project_id, entry.source_id)
     if note_path is None:
@@ -419,6 +516,46 @@ def _write_source_note(config: SupervisorConfig, entry: SourceManifestEntry, *, 
     note_path.parent.mkdir(parents=True, exist_ok=True)
     frontmatter = _source_note_frontmatter(entry, project_id=project_id, workspace_id=workspace_id, repo_root=repo_root)
     atomic_write_text(note_path, _source_note_body(entry, frontmatter))
+    return note_path
+
+
+def _write_promoted_note(
+    config: SupervisorConfig,
+    entry: SourceManifestEntry,
+    *,
+    project_id: str,
+    workspace_id: str | None,
+    repo_root: str | None,
+    memory_kind: SourcePromoteKind,
+    title: str,
+    summary: str,
+    promotion_reason: str,
+    reviewer: str | None,
+    confidence: str,
+) -> Path | None:
+    note_path = _promoted_note_path(config, project_id, memory_kind, title, entry.source_id)
+    if note_path is None:
+        return None
+    note_path.parent.mkdir(parents=True, exist_ok=True)
+    frontmatter = _promoted_note_frontmatter(
+        entry,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        repo_root=repo_root,
+        memory_kind=memory_kind,
+        title=title,
+        confidence=confidence,
+    )
+    atomic_write_text(
+        note_path,
+        _promoted_note_body(
+            entry,
+            frontmatter,
+            summary=summary,
+            promotion_reason=promotion_reason,
+            reviewer=reviewer,
+        ),
+    )
     return note_path
 
 
@@ -626,6 +763,103 @@ def source_compile(
         manifest_path=normalize_windows_path(_source_manifest_path(identity.project_id)),
         dry_run=dry_run,
         compiled=compiled,
+        planned_note_path=planned_note_path,
+        frontmatter=frontmatter,
+        warnings=warnings,
+    )
+
+
+def source_promote(
+    config: SupervisorConfig,
+    repo_root: Path,
+    source_id: str,
+    *,
+    memory_kind: SourcePromoteKind,
+    title: str,
+    summary: str,
+    promotion_reason: str,
+    reviewer: str | None = None,
+    confidence: str = "medium",
+    dry_run: bool = True,
+) -> SourcePromoteResult:
+    """Promote a reviewed source into durable project-scoped wiki knowledge."""
+
+    if memory_kind not in _PROMOTION_DIRS:
+        raise ValueError(f"Unsupported promotion memory_kind: {memory_kind}")
+    identity = build_identity(repo_root)
+    manifest = _load_source_manifest(identity.project_id)
+    found = _find_entry(manifest, source_id)
+    if found is None:
+        raise KeyError(f"Source id not found in source manifest: {source_id}")
+    index, entry = found
+    warnings: list[str] = []
+    title = title.strip()
+    summary = summary.strip()
+    promotion_reason = promotion_reason.strip()
+    if not title:
+        warnings.append("SOURCE_PROMOTE_TITLE_REQUIRED")
+        title = f"Promoted source {source_id}"
+    if not summary:
+        warnings.append("SOURCE_PROMOTE_SUMMARY_REQUIRED")
+    if not promotion_reason:
+        warnings.append("SOURCE_PROMOTE_REASON_REQUIRED")
+    if entry.review_status != "reviewed":
+        warnings.append("SOURCE_REVIEW_REQUIRED_BEFORE_PROMOTE")
+    if entry.status in {"quarantined", "rejected"}:
+        warnings.append("SOURCE_STATUS_BLOCKS_PROMOTE")
+    if confidence not in {"high", "medium", "low"}:
+        warnings.append("SOURCE_PROMOTE_INVALID_CONFIDENCE")
+        confidence = "medium"
+
+    note_path = _promoted_note_path(config, identity.project_id, memory_kind, title, entry.source_id)
+    planned_note_path = normalize_windows_path(note_path) if note_path is not None else None
+    frontmatter = _promoted_note_frontmatter(
+        entry,
+        project_id=identity.project_id,
+        workspace_id=identity.workspace_id,
+        repo_root=identity.repo_root,
+        memory_kind=memory_kind,
+        title=title,
+        confidence=confidence,
+    )
+
+    blocking_warnings = {
+        "SOURCE_PROMOTE_SUMMARY_REQUIRED",
+        "SOURCE_PROMOTE_REASON_REQUIRED",
+        "SOURCE_REVIEW_REQUIRED_BEFORE_PROMOTE",
+        "SOURCE_STATUS_BLOCKS_PROMOTE",
+    }
+    promoted = False
+    if not dry_run and note_path is not None and not any(warning in blocking_warnings for warning in warnings):
+        written = _write_promoted_note(
+            config,
+            entry,
+            project_id=identity.project_id,
+            workspace_id=identity.workspace_id,
+            repo_root=identity.repo_root,
+            memory_kind=memory_kind,
+            title=title,
+            summary=summary,
+            promotion_reason=promotion_reason,
+            reviewer=reviewer,
+            confidence=confidence,
+        )
+        if written is not None:
+            written_ref = normalize_windows_path(written)
+            compiled_into = list(dict.fromkeys([*entry.compiled_into, written_ref]))
+            manifest.entries[index] = entry.model_copy(update={"compiled_into": compiled_into, "status": "promoted"})
+            _save_source_manifest(identity.project_id, manifest)
+            promoted = True
+
+    return SourcePromoteResult(
+        project_id=identity.project_id,
+        workspace_id=identity.workspace_id,
+        repo_root=identity.repo_root,
+        manifest_path=normalize_windows_path(_source_manifest_path(identity.project_id)),
+        dry_run=dry_run,
+        promoted=promoted,
+        source_id=source_id,
+        memory_kind=memory_kind,
         planned_note_path=planned_note_path,
         frontmatter=frontmatter,
         warnings=warnings,

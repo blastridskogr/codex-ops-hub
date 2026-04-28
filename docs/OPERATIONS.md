@@ -50,6 +50,7 @@ local-file only and records provenance metadata before any compiled wiki write:
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest --repo "[project-root]" --path "README.md" --apply
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-review --repo "[project-root]" --source-id "[source-id]" --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-compile --repo "[project-root]" --source-id "[source-id]" --dry-run
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-promote --repo "[project-root]" --source-id "[source-id]" --memory-kind decision --title "[title]" --summary "[reviewed summary]" --promotion-reason "[why this is durable]" --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-ingest --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-ingest --apply
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-compile --dry-run
@@ -72,6 +73,10 @@ Current limits:
 - `source-compile --apply` is active for lightweight provenance-only source
   notes. It does not summarize or copy raw private content.
 - Private/customer/secret/restricted sources must be reviewed before compile.
+- `source-promote` is active for reviewed sources only. It writes operator
+  supplied summaries into `Task`, `Decision`, `Bug`, `Workflow`, or reviewed
+  `Source` notes and records provenance. It does not auto-summarize raw source
+  content.
 - Large Obsidian note batches can require a longer QMD embed timeout. Use
   `qmd-sync --embed --timeout-seconds [seconds]` for batch refresh; this does
   not change the bounded `memory_lookup` budget.
@@ -83,6 +88,8 @@ Current limits:
 - A source becomes evidence only after read, hash/fingerprint capture, and
   runtime project/scope filtering.
 - Cross-project hits are reference-only until imported or promoted.
+- Promoted source notes are `candidate_evidence`; runtime filters still decide
+  whether they are allowed for the current task.
 - `evidence_allowed` is runtime-computed, not permanent frontmatter.
 
 ## Writeback Rules

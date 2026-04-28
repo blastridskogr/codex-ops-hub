@@ -52,6 +52,7 @@ from codex_hermes_supervisor.services.source_intake import (
     codex_session_ingest,
     source_compile,
     source_ingest,
+    source_promote,
     source_review,
     source_status,
 )
@@ -506,6 +507,39 @@ def source_compile_command(
     """Plan a compiled Obsidian source note from a reviewed source entry."""
     config = load_config()
     result = source_compile(config, Path(repo), source_id, dry_run=dry_run)
+    typer.echo(json.dumps(result.model_dump(), indent=2))
+
+
+@app.command(name="source-promote")
+def source_promote_command(
+    repo: str = typer.Option(..., "--repo"),
+    source_id: str = typer.Option(..., "--source-id"),
+    memory_kind: str = typer.Option(..., "--memory-kind"),
+    title: str = typer.Option(..., "--title"),
+    summary: str = typer.Option(..., "--summary"),
+    promotion_reason: str = typer.Option(..., "--promotion-reason"),
+    reviewer: str | None = typer.Option(None, "--reviewer"),
+    confidence: str = typer.Option("medium", "--confidence"),
+    dry_run: bool = typer.Option(True, "--dry-run/--apply"),
+) -> None:
+    """Promote a reviewed source into a durable project wiki note.
+
+    This does not summarize raw content automatically. The operator supplies
+    the reviewed summary and promotion reason.
+    """
+    config = load_config()
+    result = source_promote(
+        config,
+        Path(repo),
+        source_id,
+        memory_kind=memory_kind,  # type: ignore[arg-type]
+        title=title,
+        summary=summary,
+        promotion_reason=promotion_reason,
+        reviewer=reviewer,
+        confidence=confidence,
+        dry_run=dry_run,
+    )
     typer.echo(json.dumps(result.model_dump(), indent=2))
 
 

@@ -10,6 +10,7 @@ from codex_hermes_supervisor.services.source_intake import (
     codex_session_ingest,
     source_compile,
     source_ingest,
+    source_promote,
     source_review,
     source_status,
 )
@@ -135,6 +136,65 @@ def test_source_compile_frontmatter_keeps_evidence_allowed_runtime_only(tmp_path
     assert result.frontmatter.memory_kind == "source"
     assert result.frontmatter.source_hashes == [ingest.entry.sha256]
     assert "evidence_allowed" not in frontmatter
+
+
+def test_source_promote_requires_review_before_durable_note(tmp_path: Path, monkeypatch) -> None:
+    _patch_home(tmp_path, monkeypatch)
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+    ingest = source_ingest(repo, Path("README.md"), dry_run=False)
+
+    result = source_promote(
+        config,
+        repo,
+        ingest.entry.source_id,
+        memory_kind="decision",
+        title="Use README as onboarding source",
+        summary="The README is a reviewed onboarding source for this project.",
+        promotion_reason="Promote only after source review.",
+        dry_run=False,
+    )
+
+    assert result.promoted is False
+    assert "SOURCE_REVIEW_REQUIRED_BEFORE_PROMOTE" in result.warnings
+    assert result.planned_note_path is not None
+    assert not Path(result.planned_note_path).exists()
+
+
+def test_source_promote_writes_candidate_evidence_note(tmp_path: Path, monkeypatch) -> None:
+    _patch_home(tmp_path, monkeypatch)
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+    ingest = source_ingest(repo, Path("README.md"), dry_run=False)
+    source_review(repo, ingest.entry.source_id, reviewer="tester", dry_run=False)
+
+    result = source_promote(
+        config,
+        repo,
+        ingest.entry.source_id,
+        memory_kind="decision",
+        title="Use README as onboarding source",
+        summary="The reviewed README can be used as the project onboarding source.",
+        promotion_reason="The source was reviewed and is durable project context.",
+        reviewer="tester",
+        confidence="high",
+        dry_run=False,
+    )
+    status = source_status(repo)
+
+    assert result.promoted is True
+    assert result.planned_note_path is not None
+    note_path = Path(result.planned_note_path)
+    assert note_path.exists()
+    text = note_path.read_text(encoding="utf-8")
+    assert "memory_kind: decision" in text
+    assert "status: reviewed" in text
+    assert "review_status: reviewed" in text
+    assert "confidence: high" in text
+    assert "evidence_class: candidate_evidence" in text
+    assert "evidence_allowed" not in text
+    assert "A source-intake sample" not in text
+    assert status.compiled == 1
 
 
 def test_codex_session_ingest_registers_private_conversations_by_session_cwd(tmp_path: Path, monkeypatch) -> None:
