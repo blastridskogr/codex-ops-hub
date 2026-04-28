@@ -15,12 +15,15 @@
 - Bounded `memory_lookup` diagnostics with lookup timing and deadline warnings.
 - Source intake Phase 0 schema baseline: `SourceManifest`, `SourceNote`, and
   `ImportedLesson` frontmatter.
+- Source intake Phase 3A CLI skeleton:
+  `source-status`, `source-ingest`, `source-review`, and `source-compile`
+  dry-run planning for local repo files.
 
 ## Next
 
-- Lightweight source ingest for repo text, Markdown, reviewed logs, and reviewed conversations.
-- `source-ingest --dry-run`, `source-compile --dry-run`, `source-review`, and
-  `source-promote --dry-run`.
+- Lightweight source compile apply for reviewed repo text, Markdown, reviewed
+  logs, and reviewed conversations.
+- `source-promote --dry-run`.
 - Cross-project candidate/import/promote workflow.
 - Source governance doctor.
 - Synthetic cross-project validation.

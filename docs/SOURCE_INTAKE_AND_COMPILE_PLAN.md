@@ -1,7 +1,9 @@
 ﻿# Source Intake And Compile Plan
 
-Status: planned extension, not fully implemented. Phase 0 schema types are
-implemented as a safety baseline; ingest/compile commands are not active yet.
+Status: staged implementation. Phase 0 schema types are implemented as a safety
+baseline. Phase 3A now has local-file CLI skeletons for source status, ingest,
+review, and compile planning; bulk/heavy ingest and compile apply are not active
+yet.
 
 This plan expands Codex Ops Hub from project memory lookup into full Official
 LLM Wiki source intake and source compilation.
@@ -32,17 +34,44 @@ Implemented schema baseline:
 - `SourceNote` schema.
 - `ImportedLesson` schema.
 
-Still required before broad ingest:
+Implemented Phase 3A skeleton:
 
 - `source-ingest --dry-run`.
 - `source-compile --dry-run`.
 - `source-review`.
+
+Still required before broad ingest:
+
 - `source-promote --dry-run`.
 - privacy/redaction policy.
 - archive safety policy.
 - no raw into Hermes.
 - no raw into unrestricted wiki.
 - provenance-required check.
+
+## Current CLI Skeleton
+
+The current implementation is deliberately narrow:
+
+```powershell
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-status --repo "[project-root]"
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest --repo "[project-root]" --path "README.md" --dry-run
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest --repo "[project-root]" --path "README.md" --apply
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-review --repo "[project-root]" --source-id "[source-id]" --dry-run
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-compile --repo "[project-root]" --source-id "[source-id]" --dry-run
+```
+
+Current guarantees:
+
+- `source-ingest` registers provenance metadata in a project-scoped
+  `source_manifest.yaml`.
+- Local file ingest must point inside the repo root in this phase.
+- Directory/bulk ingest is not implemented.
+- Raw content is not copied into Hermes or unrestricted wiki notes.
+- Private/customer/secret/restricted sources require review before compile.
+- `source-compile --dry-run` returns planned frontmatter and note path only.
+- `source-compile --apply` is intentionally not implemented yet.
+- `evidence_allowed` remains runtime-computed and is not note frontmatter.
 
 ## Source Types
 

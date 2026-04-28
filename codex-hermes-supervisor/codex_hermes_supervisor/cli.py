@@ -47,6 +47,7 @@ from codex_hermes_supervisor.services.project_memory import (
 )
 from codex_hermes_supervisor.services.qmd_eval import evaluate_qmd_fixture, evaluate_qmd_gates
 from codex_hermes_supervisor.services.search_eval import evaluate_search_fixture, evaluate_search_gates
+from codex_hermes_supervisor.services.source_intake import source_compile, source_ingest, source_review, source_status
 from codex_hermes_supervisor.mcp_server import main as mcp_main
 
 app = typer.Typer(help="Codex-Hermes supervisor CLI.")
@@ -393,6 +394,72 @@ def memory_lookup_command(
         timeout_seconds=timeout_seconds,
     )
     typer.echo(json.dumps(result.model_dump(), indent=2, ensure_ascii=False))
+
+
+@app.command(name="source-status")
+def source_status_command(repo: str = typer.Option(..., "--repo")) -> None:
+    """Show Official LLM Wiki source intake manifest status for a project."""
+    typer.echo(json.dumps(source_status(Path(repo)).model_dump(), indent=2))
+
+
+@app.command(name="source-ingest")
+def source_ingest_command(
+    repo: str = typer.Option(..., "--repo"),
+    path: str = typer.Option(..., "--path"),
+    source_type: str = typer.Option("repo_text", "--source-type"),
+    privacy: str = typer.Option("public", "--privacy"),
+    scope: str = typer.Option("project", "--scope"),
+    notes: str = typer.Option("", "--notes"),
+    dry_run: bool = typer.Option(True, "--dry-run/--apply"),
+) -> None:
+    """Register a local source in the project source manifest.
+
+    Phase 3A is dry-run-first and local-file only. It records provenance
+    metadata and never copies raw content into Hermes or unrestricted wiki notes.
+    """
+    result = source_ingest(
+        Path(repo),
+        Path(path),
+        source_type=source_type,  # type: ignore[arg-type]
+        privacy=privacy,  # type: ignore[arg-type]
+        scope=scope,  # type: ignore[arg-type]
+        dry_run=dry_run,
+        notes=notes,
+    )
+    typer.echo(json.dumps(result.model_dump(), indent=2))
+
+
+@app.command(name="source-review")
+def source_review_command(
+    repo: str = typer.Option(..., "--repo"),
+    source_id: str = typer.Option(..., "--source-id"),
+    review_status: str = typer.Option("reviewed", "--review-status"),
+    reviewer: str | None = typer.Option(None, "--reviewer"),
+    notes: str | None = typer.Option(None, "--notes"),
+    dry_run: bool = typer.Option(True, "--dry-run/--apply"),
+) -> None:
+    """Review or reject a source-manifest entry before compile/promote."""
+    result = source_review(
+        Path(repo),
+        source_id,
+        review_status=review_status,  # type: ignore[arg-type]
+        reviewer=reviewer,
+        notes=notes,
+        dry_run=dry_run,
+    )
+    typer.echo(json.dumps(result.model_dump(), indent=2))
+
+
+@app.command(name="source-compile")
+def source_compile_command(
+    repo: str = typer.Option(..., "--repo"),
+    source_id: str = typer.Option(..., "--source-id"),
+    dry_run: bool = typer.Option(True, "--dry-run/--apply"),
+) -> None:
+    """Plan a compiled Obsidian source note from a reviewed source entry."""
+    config = load_config()
+    result = source_compile(config, Path(repo), source_id, dry_run=dry_run)
+    typer.echo(json.dumps(result.model_dump(), indent=2))
 
 
 @app.command(name="qmd-doctor")

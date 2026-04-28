@@ -39,6 +39,27 @@ When the deadline is exceeded, the result includes `lookup_timing_ms`,
 `lookup_timeout_seconds`, `lookup_deadline_exceeded`, and explicit
 `MEMORY_LOOKUP_DEADLINE_EXCEEDED` warnings instead of silently hanging.
 
+## Source Intake CLI
+
+Official LLM Wiki source intake is dry-run-first. The current v0.2 skeleton is
+local-file only and records provenance metadata before any compiled wiki write:
+
+```powershell
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-status --repo "[project-root]"
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest --repo "[project-root]" --path "README.md" --dry-run
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest --repo "[project-root]" --path "README.md" --apply
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-review --repo "[project-root]" --source-id "[source-id]" --dry-run
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-compile --repo "[project-root]" --source-id "[source-id]" --dry-run
+```
+
+Current limits:
+
+- Directory/bulk ingest is not active.
+- Heavy PDF/DOCX/XLSX/PPTX/image/web/archive ingest is not active.
+- `source-compile --apply` is intentionally blocked until compile templates,
+  review gates, and governance checks are promoted.
+- Private/customer/secret/restricted sources must be reviewed before compile.
+
 ## Evidence Rules
 
 - Hermes recall is pointer memory, not same-session evidence.

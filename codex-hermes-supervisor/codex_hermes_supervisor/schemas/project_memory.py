@@ -92,6 +92,41 @@ class SourceManifest(BaseModel):
     entries: list[SourceManifestEntry] = Field(default_factory=list)
 
 
+class SourceStatusReport(BaseModel):
+    project_id: str
+    workspace_id: str
+    repo_root: str
+    manifest_path: str
+    exists: bool
+    total_entries: int = 0
+    pending_review: int = 0
+    reviewed: int = 0
+    compiled: int = 0
+    warnings: list[str] = Field(default_factory=list)
+
+
+class SourceIngestResult(BaseModel):
+    project_id: str
+    workspace_id: str
+    repo_root: str
+    manifest_path: str
+    dry_run: bool = True
+    created: bool = False
+    updated: bool = False
+    entry: SourceManifestEntry
+    warnings: list[str] = Field(default_factory=list)
+
+
+class SourceReviewResult(BaseModel):
+    project_id: str
+    workspace_id: str
+    repo_root: str
+    manifest_path: str
+    dry_run: bool = True
+    entry: SourceManifestEntry
+    warnings: list[str] = Field(default_factory=list)
+
+
 class SourceNoteFrontmatter(BaseModel):
     """Compiled Markdown note frontmatter.
 
@@ -134,6 +169,18 @@ class ImportedLessonFrontmatter(SourceNoteFrontmatter):
     promotion_reason: str
     promotion_review_status: ReviewStatus = "pending"
     imported_at: str
+
+
+class SourceCompileResult(BaseModel):
+    project_id: str
+    workspace_id: str
+    repo_root: str
+    manifest_path: str
+    dry_run: bool = True
+    compiled: bool = False
+    planned_note_path: str | None = None
+    frontmatter: SourceNoteFrontmatter
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ProjectWikiItem(BaseModel):

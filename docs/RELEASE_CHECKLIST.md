@@ -58,6 +58,8 @@ Expected: only public examples, `.gitignore` entries, or placeholder paths.
 
 - Do not publish private Obsidian vault content.
 - Do not publish Hermes outbox records, task records, sessions, raw customer files, screenshots, workbooks, or archives.
-- Do not claim source ingest/compile is implemented until the planned CLI-first, dry-run-first, review-gated implementation is verified.
+- Do not claim bulk source ingest, heavy-source ingest, or compile apply is
+  implemented until the CLI-first, dry-run-first, review-gated implementation is
+  verified.
 - Do not treat QMD/vector hits as evidence without source read, hash/fingerprint capture, and runtime project/scope filtering.
 - Do not store `evidence_allowed` as permanent frontmatter; compute it at runtime.
