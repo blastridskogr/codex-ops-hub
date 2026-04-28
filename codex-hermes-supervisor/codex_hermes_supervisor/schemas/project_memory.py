@@ -23,7 +23,7 @@ SourceType = Literal[
     "archive",
     "other",
 ]
-SourcePromoteKind = Literal["task", "decision", "bug", "workflow", "source"]
+SourcePromoteKind = Literal["project", "status", "task", "decision", "bug", "workflow", "source"]
 SourceLifecycleStatus = Literal[
     "raw",
     "extracted",

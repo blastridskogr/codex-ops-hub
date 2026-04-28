@@ -106,6 +106,7 @@ metadata before any compiled wiki write:
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest --repo "[project-root]" --path "README.md" --apply
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-review --repo "[project-root]" --source-id "[source-id]" --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-compile --repo "[project-root]" --source-id "[source-id]" --dry-run
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-promote --repo "[project-root]" --source-id "[source-id]" --memory-kind project --title "[title]" --summary "[reviewed summary]" --promotion-reason "[why this is durable]" --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-promote --repo "[project-root]" --source-id "[source-id]" --memory-kind decision --title "[title]" --summary "[reviewed summary]" --promotion-reason "[why this is durable]" --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-ingest --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli codex-session-ingest --apply

@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from codex_hermes_supervisor.core.config import SupervisorConfig
+from codex_hermes_supervisor.core.identity import build_identity
 from codex_hermes_supervisor.services.source_intake import (
     codex_session_compile,
     codex_session_ingest,
@@ -212,6 +213,36 @@ def test_source_promote_writes_candidate_evidence_note(tmp_path: Path, monkeypat
     assert "evidence_allowed" not in text
     assert "A source-intake sample" not in text
     assert status.compiled == 1
+
+
+def test_source_promote_supports_project_memory_kind(tmp_path: Path, monkeypatch) -> None:
+    _patch_home(tmp_path, monkeypatch)
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+    ingest = source_ingest(repo, Path("."), source_type="directory", privacy="private", dry_run=False)
+    source_review(repo, ingest.entry.source_id, reviewer="tester", dry_run=False)
+
+    result = source_promote(
+        config,
+        repo,
+        ingest.entry.source_id,
+        memory_kind="project",
+        title="Initial project folder inventory",
+        summary="The project folder exists and is registered as a manifest-only directory source.",
+        promotion_reason="Directory provenance anchors project memory onboarding.",
+        reviewer="tester",
+        confidence="low",
+        dry_run=False,
+    )
+
+    assert result.promoted is True
+    note_path = Path(result.planned_note_path)
+    assert note_path.exists()
+    assert note_path.parent.name == build_identity(repo).project_id
+    assert note_path.parent.parent.name == "Projects"
+    text = note_path.read_text(encoding="utf-8")
+    assert "memory_kind: project" in text
+    assert "evidence_class: candidate_evidence" in text
 
 
 def test_codex_session_ingest_registers_private_conversations_by_session_cwd(tmp_path: Path, monkeypatch) -> None:

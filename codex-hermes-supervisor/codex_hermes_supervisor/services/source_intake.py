@@ -40,6 +40,8 @@ _LIGHTWEIGHT_SOURCE_TYPES = {"directory", "repo_text", "manual", "conversation",
 _MAX_LIGHTWEIGHT_SOURCE_SIZE = 2 * 1024 * 1024
 _SESSION_ID_RE = re.compile(r"(019[0-9a-f]{5,}-[0-9a-f-]{20,})", re.IGNORECASE)
 _PROMOTION_DIRS: dict[SourcePromoteKind, str] = {
+    "project": "Projects",
+    "status": "Projects",
     "task": "Tasks",
     "decision": "Decisions",
     "bug": "Bugs",
