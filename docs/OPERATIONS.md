@@ -95,10 +95,13 @@ When the deadline is exceeded, the result includes `lookup_timing_ms`,
 ## Source Intake CLI
 
 Official LLM Wiki source intake is dry-run-first. The current v0.2 skeleton is
-local-file only and records provenance metadata before any compiled wiki write:
+local-file and manifest-only directory registration. It records provenance
+metadata before any compiled wiki write:
 
 ```powershell
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-status --repo "[project-root]"
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest --repo "[project-root]" --path "." --source-type directory --dry-run
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest --repo "[project-root]" --path "." --source-type directory --apply
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest --repo "[project-root]" --path "README.md" --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest --repo "[project-root]" --path "README.md" --apply
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-review --repo "[project-root]" --source-id "[source-id]" --dry-run
@@ -113,7 +116,9 @@ local-file only and records provenance metadata before any compiled wiki write:
 
 Current limits:
 
-- Directory/bulk repo ingest is not active.
+- Directory registration is active as manifest-only provenance. It does not
+  enumerate, copy, summarize, or compile every file in the directory.
+- Bulk repo file ingest is not active.
 - Codex session ingest is active for `~/.codex/sessions` and
   `~/.codex/archived_sessions`; it registers transcript metadata as private
   `conversation` raw sources grouped by session `cwd`.

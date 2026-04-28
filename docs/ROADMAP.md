@@ -28,6 +28,9 @@
 - Source intake Phase 3A CLI skeleton:
   `source-status`, `source-ingest`, `source-review`, and `source-compile`
   dry-run planning for local repo files.
+- Manifest-only project directory registration through `source-ingest --path .`
+  for linking conversation sources to their workspace folders without copying
+  raw project contents.
 - `source-promote` for reviewed source notes with operator-supplied summaries.
 
 ## Next

@@ -451,8 +451,9 @@ def source_ingest_command(
 ) -> None:
     """Register a local source in the project source manifest.
 
-    Phase 3A is dry-run-first and local-file only. It records provenance
-    metadata and never copies raw content into Hermes or unrestricted wiki notes.
+    Phase 3A is dry-run-first and local-file/directory only. It records
+    provenance metadata and never copies raw content into Hermes or
+    unrestricted wiki notes.
     """
     result = source_ingest(
         Path(repo),

@@ -10,6 +10,7 @@ MemoryStatus = Literal["draft", "reviewed", "stale", "superseded", "rejected"]
 SourceScope = Literal["global", "project", "workspace", "user", "reference"]
 SourcePrivacy = Literal["public", "private", "customer", "secret", "restricted", "unknown"]
 SourceType = Literal[
+    "directory",
     "repo_text",
     "manual",
     "conversation",

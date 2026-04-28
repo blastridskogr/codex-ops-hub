@@ -75,6 +75,23 @@ def test_source_ingest_apply_writes_manifest_and_status(tmp_path: Path, monkeypa
     assert status.pending_review == 0
 
 
+def test_source_ingest_registers_directory_manifest_only(tmp_path: Path, monkeypatch) -> None:
+    _patch_home(tmp_path, monkeypatch)
+    repo = _init_repo(tmp_path)
+
+    result = source_ingest(repo, Path("."), source_type="directory", dry_run=False)
+    status = source_status(repo)
+
+    assert result.created is True
+    assert result.entry.source_type == "directory"
+    assert result.entry.content_type == "inode/directory"
+    assert result.entry.raw_storage_uri == str(repo.resolve())
+    assert result.entry.extraction_status == "not_supported"
+    assert result.entry.size_bytes == 0
+    assert "DIRECTORY_SOURCE_REGISTERED_MANIFEST_ONLY" in result.warnings
+    assert status.total_entries == 1
+
+
 def test_private_source_compile_requires_review(tmp_path: Path, monkeypatch) -> None:
     _patch_home(tmp_path, monkeypatch)
     repo = _init_repo(tmp_path)

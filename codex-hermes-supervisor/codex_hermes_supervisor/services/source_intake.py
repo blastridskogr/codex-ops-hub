@@ -36,7 +36,7 @@ from codex_hermes_supervisor.schemas.project_memory import (
 )
 
 _REVIEW_REQUIRED_PRIVACY = {"private", "customer", "secret", "restricted"}
-_LIGHTWEIGHT_SOURCE_TYPES = {"repo_text", "manual", "conversation", "terminal_log"}
+_LIGHTWEIGHT_SOURCE_TYPES = {"directory", "repo_text", "manual", "conversation", "terminal_log"}
 _MAX_LIGHTWEIGHT_SOURCE_SIZE = 2 * 1024 * 1024
 _SESSION_ID_RE = re.compile(r"(019[0-9a-f]{5,}-[0-9a-f-]{20,})", re.IGNORECASE)
 _PROMOTION_DIRS: dict[SourcePromoteKind, str] = {
@@ -76,8 +76,30 @@ def _sha256_file(path: Path) -> str:
     return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
 
+def _sha256_directory_registration(path: Path) -> str:
+    names: list[str] = []
+    try:
+        names = sorted(child.name for child in path.iterdir())[:500]
+    except OSError:
+        names = []
+    stat = path.stat()
+    payload = {
+        "kind": "directory-registration",
+        "path": normalize_windows_path(path),
+        "mtime_ns": stat.st_mtime_ns,
+        "child_names_sample": names,
+    }
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8", errors="replace")
+    return f"sha256:{hashlib.sha256(raw).hexdigest()}"
+
+
 def _source_id_from_hash(sha256: str) -> str:
     return f"src-{sha256.removeprefix('sha256:')[:12]}"
+
+
+def _source_id_from_directory_path(path: Path) -> str:
+    normalized = normalize_windows_path(path)
+    return f"dir-{hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:12]}"
 
 
 def _source_id_from_session_id(session_id: str, fallback_sha256: str) -> str:
@@ -100,8 +122,6 @@ def _resolve_repo_source(repo_root: Path, source_path: Path) -> Path:
     resolved = resolved.resolve()
     if not resolved.exists():
         raise FileNotFoundError(f"Source path does not exist: {resolved}")
-    if resolved.is_dir():
-        raise IsADirectoryError(f"Directory ingest is not implemented yet: {resolved}")
     try:
         resolved.relative_to(repo_root)
     except ValueError as exc:
@@ -621,14 +641,24 @@ def source_ingest(
     identity = build_identity(repo_root)
     repo_root = Path(identity.repo_root)
     resolved = _resolve_repo_source(repo_root, source_path)
-    sha256 = _sha256_file(resolved)
-    source_id = _source_id_from_hash(sha256)
-    size_bytes = resolved.stat().st_size
-    content_type = mimetypes.guess_type(str(resolved))[0] or "application/octet-stream"
+    is_directory = resolved.is_dir()
+    if is_directory:
+        source_type = "directory"
+        sha256 = _sha256_directory_registration(resolved)
+        source_id = _source_id_from_directory_path(resolved)
+        size_bytes = 0
+        content_type = "inode/directory"
+    else:
+        sha256 = _sha256_file(resolved)
+        source_id = _source_id_from_hash(sha256)
+        size_bytes = resolved.stat().st_size
+        content_type = mimetypes.guess_type(str(resolved))[0] or "application/octet-stream"
     warnings: list[str] = []
+    if is_directory:
+        warnings.append("DIRECTORY_SOURCE_REGISTERED_MANIFEST_ONLY")
     if source_type not in _LIGHTWEIGHT_SOURCE_TYPES:
         warnings.append("SOURCE_TYPE_HEAVY_OR_UNSUPPORTED_FOR_PHASE_3A_MANIFEST_ONLY")
-    if size_bytes > _MAX_LIGHTWEIGHT_SOURCE_SIZE:
+    if not is_directory and size_bytes > _MAX_LIGHTWEIGHT_SOURCE_SIZE:
         warnings.append("SOURCE_FILE_EXCEEDS_LIGHTWEIGHT_PHASE_SIZE_LIMIT")
     review_status: ReviewStatus = "pending" if privacy in _REVIEW_REQUIRED_PRIVACY else "not_required"
     redaction_status = "pending" if privacy in _REVIEW_REQUIRED_PRIVACY else "not_required"
@@ -638,6 +668,7 @@ def source_ingest(
         source_type=source_type,
         content_type=content_type,
         source_uri=normalize_windows_path(resolved),
+        raw_storage_uri=normalize_windows_path(resolved),
         original_name=resolved.name,
         source_title=resolved.stem,
         source_accessed_at=now_local_iso(),
@@ -645,14 +676,15 @@ def source_ingest(
         workspace_id=identity.workspace_id if scope in {"project", "workspace"} else None,
         repo_root=identity.repo_root,
         scope=scope,
-        source_scope_reason="initial source-ingest registration",
+        source_scope_reason="project directory registration" if is_directory else "initial source-ingest registration",
         sha256=sha256,
         size_bytes=size_bytes,
         privacy=privacy,
         source_owner=source_owner,
-        extraction_status="not_started",
+        extraction_status="not_supported" if is_directory else "not_started",
         redaction_status=redaction_status,
         review_status=review_status,
+        retention_policy="preserve directory in place; manifest records project root only" if is_directory else None,
         status="raw",
         notes=notes,
     )
