@@ -6,8 +6,8 @@ For non-trivial work:
 
 ```text
 1. harness_begin
-2. memory_lookup when the task is non-trivial or memory-dependent
-3. harness_plan with allowed files and verification steps
+2. memory_preflight when the task is non-trivial or memory-dependent
+3. harness_plan with memory context, allowed files, and verification steps
 4. work
 5. harness_checkpoint for decisions, failed attempts, risks, or verification
 6. harness_check
@@ -30,7 +30,17 @@ every task.
 | `deep_wiki_read` | Memory architecture, release/handoff, cross-project import/promotion, major refactor, stale cleanup |
 
 When the user mentions a keyword, previous work, or workstream, run
-`memory_lookup` before planning.
+`memory_preflight` before planning. `memory_preflight` records the selected
+memory decision, invokes `memory_lookup` when lookup is required, and returns
+the source paths and rejected reference-only hits that should be considered
+during planning.
+
+```powershell
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli memory-preflight "previous work keyword" --repo "[project-root]" --memory-decision targeted_lookup
+```
+
+Use `memory_lookup` directly only for lower-level lookup diagnostics or manual
+context inspection.
 
 `memory_lookup` has a bounded lookup budget. The default CLI/MCP budget is 55
 seconds so it can return a degraded context pack before a normal MCP tool

@@ -40,7 +40,7 @@ from codex_hermes_supervisor.services.harness import (
     version_sync_tool,
     wiki_note_tool,
 )
-from codex_hermes_supervisor.services.project_memory import memory_lookup
+from codex_hermes_supervisor.services.project_memory import memory_lookup, memory_preflight
 
 
 def build_server(profile: str) -> FastMCP:
@@ -257,6 +257,27 @@ def build_server(profile: str) -> FastMCP:
             limit=limit,
             mode=mode,
             backend=backend,
+            timeout_seconds=timeout_seconds,
+        ).model_dump()
+
+    @server.tool(name="memory_preflight")
+    def memory_preflight_tool(
+        repo_root: str,
+        query: str,
+        memory_decision: str = "targeted_lookup",
+        skip_reason: str | None = None,
+        project_id: str | None = None,
+        workstream_id: str | None = None,
+        timeout_seconds: float | None = 55.0,
+    ):
+        return memory_preflight(
+            query,
+            repo_root=Path(repo_root),
+            config=config,
+            memory_decision=memory_decision,  # type: ignore[arg-type]
+            skip_reason=skip_reason,
+            project_id=project_id,
+            workstream_id=workstream_id,
             timeout_seconds=timeout_seconds,
         ).model_dump()
 

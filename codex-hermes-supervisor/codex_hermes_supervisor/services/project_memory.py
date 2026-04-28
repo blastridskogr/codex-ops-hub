@@ -25,10 +25,12 @@ from codex_hermes_supervisor.integrations.obsidian import initialize_obsidian_va
 from codex_hermes_supervisor.integrations.qmd import qmd_search
 from codex_hermes_supervisor.schemas.project_memory import (
     CompactSummaryRecord,
+    MemoryDecision,
     MemoryImportPreview,
     MemoryImportResult,
     MemoryContextPack,
     MemoryLookupResult,
+    MemoryPreflightResult,
     ProjectMemoryBootstrapResult,
     MemoryRefreshResult,
     MemorySearchHit,
@@ -63,6 +65,7 @@ _RECURSIVE_DIRS = ["docs", ".github/workflows", "tests", "scripts"]
 _EXCLUDE_PARTS = {"node_modules", "dist", "build", "coverage", ".git", ".venv", "venv", "__pycache__"}
 _EXCLUDE_NAMES = {".env", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"}
 _MEMORY_LOOKUP_DEFAULT_TIMEOUT_SECONDS = 55.0
+_VALID_NO_LOOKUP_SKIP_REASONS = {"pure_chat", "trivial_task", "no_durable_outcome", "missing_project_memory_bootstrap"}
 _TEXT_SUFFIXES = {
     ".md",
     ".txt",
@@ -1573,4 +1576,94 @@ def memory_lookup(
         lookup_timeout_seconds=timeout_seconds,
         lookup_deadline_exceeded=deadline_exceeded,
         context_pack=context_pack,
+    )
+
+
+def memory_preflight(
+    query: str,
+    *,
+    repo_root: Path,
+    config: SupervisorConfig,
+    memory_decision: MemoryDecision = "targeted_lookup",
+    skip_reason: str | None = None,
+    project_id: str | None = None,
+    workstream_id: str | None = None,
+    timeout_seconds: float | None = _MEMORY_LOOKUP_DEFAULT_TIMEOUT_SECONDS,
+) -> MemoryPreflightResult:
+    """Formal adaptive read-before-work check for Official LLM Wiki operation."""
+
+    identity = build_identity(repo_root.resolve())
+    selected_project_id = project_id or identity.project_id
+    warnings: list[str] = []
+    blockers: list[str] = []
+    next_actions: list[str] = []
+    lookup_result: MemoryLookupResult | None = None
+    lookup_required = memory_decision != "no_memory_needed"
+    source_paths: list[str] = []
+    rejected_reference_paths: list[str] = []
+    memory_evidence_ready = False
+    resolved_workstream_id: str | None = workstream_id
+
+    if memory_decision == "no_memory_needed":
+        if not skip_reason:
+            blockers.append("MEMORY_PREFLIGHT_SKIP_REASON_REQUIRED")
+        elif skip_reason not in _VALID_NO_LOOKUP_SKIP_REASONS:
+            blockers.append("MEMORY_PREFLIGHT_INVALID_SKIP_REASON")
+        if skip_reason == "missing_project_memory_bootstrap":
+            next_actions.append("Checkpoint or create project memory bootstrap before relying on project memory.")
+        next_actions.append("Proceed without lookup only if the task remains within the recorded skip reason.")
+    else:
+        if skip_reason:
+            warnings.append("MEMORY_PREFLIGHT_SKIP_REASON_IGNORED_FOR_LOOKUP")
+        if memory_decision == "light_lookup":
+            lookup_limit = 3
+            lookup_mode = "keyword"
+        elif memory_decision == "deep_wiki_read":
+            lookup_limit = 12
+            lookup_mode = "hybrid"
+            next_actions.append("Read returned source_paths and project entrypoints before planning.")
+        else:
+            lookup_limit = 8
+            lookup_mode = "auto"
+        lookup_result = memory_lookup(
+            query,
+            repo_root=repo_root,
+            config=config,
+            project_id=selected_project_id,
+            workstream_id=workstream_id,
+            limit=lookup_limit,
+            mode=lookup_mode,
+            timeout_seconds=timeout_seconds,
+        )
+        source_paths = list(lookup_result.context_pack.source_paths)
+        rejected_reference_paths = list(lookup_result.context_pack.rejected_reference_paths)
+        resolved_workstream_id = lookup_result.inferred_workstream_id or workstream_id
+        memory_evidence_ready = bool(lookup_result.context_pack.sources)
+        warnings.extend(lookup_result.warnings)
+        if not memory_evidence_ready:
+            warnings.append("MEMORY_PREFLIGHT_NO_ALLOWED_EVIDENCE")
+            next_actions.append("Use rejected_reference_paths only as review candidates, not evidence.")
+        else:
+            next_actions.append("Use source_paths as memory evidence inputs for harness_plan.")
+
+    if rejected_reference_paths:
+        next_actions.append("Promote/import reference-only hits before using them as current-project evidence.")
+
+    return MemoryPreflightResult(
+        query=query,
+        project_id=selected_project_id,
+        workspace_id=identity.workspace_id,
+        repo_root=identity.repo_root,
+        memory_decision=memory_decision,
+        skip_reason=skip_reason,
+        lookup_required=lookup_required,
+        lookup_ran=lookup_result is not None,
+        memory_evidence_ready=memory_evidence_ready,
+        source_paths=source_paths,
+        rejected_reference_paths=rejected_reference_paths,
+        workstream_id=resolved_workstream_id,
+        lookup_result=lookup_result,
+        warnings=_unique_warnings(warnings),
+        blockers=blockers,
+        next_actions=next_actions,
     )

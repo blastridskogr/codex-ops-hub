@@ -16,6 +16,7 @@ def test_build_server_registers_all_tools() -> None:
         "harness_write_version",
         "lesson_capture",
         "memory_lookup",
+        "memory_preflight",
         "version_prepare",
         "version_sync",
         "wiki_note",

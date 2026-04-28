@@ -35,6 +35,7 @@ from codex_hermes_supervisor.services.project_memory import (
     memory_import_apply,
     memory_import_preview,
     memory_lookup,
+    memory_preflight,
     project_memory_bootstrap,
     memory_refresh,
     memory_review,
@@ -402,6 +403,34 @@ def memory_lookup_command(
         timeout_seconds=timeout_seconds,
     )
     typer.echo(json.dumps(result.model_dump(), indent=2, ensure_ascii=False))
+
+
+@app.command(name="memory-preflight")
+def memory_preflight_command(
+    query: str = typer.Argument(...),
+    repo: str = typer.Option(..., "--repo"),
+    memory_decision: str = typer.Option("targeted_lookup", "--memory-decision"),
+    skip_reason: str | None = typer.Option(None, "--skip-reason"),
+    project_id: str | None = typer.Option(None, "--project-id"),
+    workstream_id: str | None = typer.Option(None, "--workstream-id"),
+    timeout_seconds: float | None = typer.Option(55.0, "--timeout-seconds"),
+    strict: bool = typer.Option(False, "--strict/--no-strict"),
+) -> None:
+    """Run the adaptive Official LLM Wiki read-before-work preflight."""
+    config = load_config()
+    result = memory_preflight(
+        query,
+        repo_root=Path(repo),
+        config=config,
+        memory_decision=memory_decision,  # type: ignore[arg-type]
+        skip_reason=skip_reason,
+        project_id=project_id,
+        workstream_id=workstream_id,
+        timeout_seconds=timeout_seconds,
+    )
+    typer.echo(json.dumps(result.model_dump(), indent=2, ensure_ascii=False))
+    if strict and result.blockers:
+        raise typer.Exit(code=2)
 
 
 @app.command(name="source-status")

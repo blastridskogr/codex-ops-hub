@@ -53,7 +53,8 @@ backend in this setup.
 Read-before-work is adaptive:
 
 - use direct entrypoints for context.
-- use `memory_lookup` for keyword/workstream recall.
+- use `memory_preflight` to record the memory decision and gather plan inputs.
+- use `memory_lookup` for lower-level keyword/workstream recall diagnostics.
 - use QMD/vector/Obsidian search to select pages.
 - read and hash the referenced source before treating it as evidence.
 

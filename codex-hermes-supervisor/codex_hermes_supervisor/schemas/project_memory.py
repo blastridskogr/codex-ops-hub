@@ -36,6 +36,8 @@ SourceLifecycleStatus = Literal[
     "rejected",
 ]
 ReviewStatus = Literal["not_required", "pending", "reviewed", "rejected"]
+MemoryDecision = Literal["no_memory_needed", "light_lookup", "targeted_lookup", "deep_wiki_read"]
+MemorySkipReason = Literal["pure_chat", "trivial_task", "no_durable_outcome", "missing_project_memory_bootstrap"]
 
 
 class ProjectSourceItem(BaseModel):
@@ -437,6 +439,25 @@ class MemoryLookupResult(BaseModel):
     lookup_timeout_seconds: float | None = None
     lookup_deadline_exceeded: bool = False
     context_pack: MemoryContextPack
+
+
+class MemoryPreflightResult(BaseModel):
+    query: str
+    project_id: str
+    workspace_id: str
+    repo_root: str
+    memory_decision: MemoryDecision
+    skip_reason: str | None = None
+    lookup_required: bool = False
+    lookup_ran: bool = False
+    memory_evidence_ready: bool = False
+    source_paths: list[str] = Field(default_factory=list)
+    rejected_reference_paths: list[str] = Field(default_factory=list)
+    workstream_id: str | None = None
+    lookup_result: MemoryLookupResult | None = None
+    warnings: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
 
 
 class VectorIndexStatus(BaseModel):

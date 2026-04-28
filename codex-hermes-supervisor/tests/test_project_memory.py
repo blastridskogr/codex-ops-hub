@@ -12,6 +12,7 @@ from codex_hermes_supervisor.services.project_memory import (
     memory_import_apply,
     memory_import_preview,
     memory_lookup,
+    memory_preflight,
     project_memory_bootstrap,
     memory_refresh,
     memory_search,
@@ -759,6 +760,45 @@ def test_memory_lookup_timeout_returns_degraded_context(tmp_path: Path, monkeypa
     assert result.lookup_timing_ms["total"] >= 0
     assert not result.context_pack.sources
     assert any("MEMORY_LOOKUP_DEADLINE_EXCEEDED" in warning for warning in result.warnings)
+
+
+def test_memory_preflight_requires_valid_skip_reason(tmp_path: Path, monkeypatch) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr("codex_hermes_supervisor.core.paths.user_home", lambda: home)
+    monkeypatch.setattr("codex_hermes_supervisor.core.paths.supervisor_root", lambda: home / ".codex-hermes")
+    monkeypatch.setattr("codex_hermes_supervisor.integrations.hermes.user_home", lambda: home)
+
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+
+    missing = memory_preflight("hello", repo_root=repo, config=config, memory_decision="no_memory_needed")
+    invalid = memory_preflight("hello", repo_root=repo, config=config, memory_decision="no_memory_needed", skip_reason="because")
+
+    assert missing.lookup_ran is False
+    assert "MEMORY_PREFLIGHT_SKIP_REASON_REQUIRED" in missing.blockers
+    assert "MEMORY_PREFLIGHT_INVALID_SKIP_REASON" in invalid.blockers
+
+
+def test_memory_preflight_runs_lookup_for_targeted_decision(tmp_path: Path, monkeypatch) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr("codex_hermes_supervisor.core.paths.user_home", lambda: home)
+    monkeypatch.setattr("codex_hermes_supervisor.core.paths.supervisor_root", lambda: home / ".codex-hermes")
+    monkeypatch.setattr("codex_hermes_supervisor.integrations.hermes.user_home", lambda: home)
+
+    repo = _init_repo(tmp_path)
+    config = _config(tmp_path)
+    imported = memory_import_apply(config, repo)
+    memory_commit(config, imported.project_id)
+
+    result = memory_preflight("sample service", repo_root=repo, config=config, memory_decision="targeted_lookup")
+
+    assert result.lookup_required is True
+    assert result.lookup_ran is True
+    assert result.memory_evidence_ready is True
+    assert result.source_paths
+    assert any("Use source_paths" in action for action in result.next_actions)
 
 
 def test_qmd_doctor_uses_command_prefix_for_version(tmp_path: Path) -> None:

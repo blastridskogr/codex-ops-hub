@@ -104,6 +104,52 @@ def test_qmd_sync_cli(monkeypatch, tmp_path) -> None:
     assert seen_timeout == [123]
 
 
+def test_memory_preflight_cli_passes_decision_and_timeout(monkeypatch, tmp_path) -> None:
+    from codex_hermes_supervisor.schemas.project_memory import MemoryPreflightResult
+
+    seen: dict[str, object] = {}
+
+    def _fake_preflight(query, **kwargs):
+        seen["query"] = query
+        seen.update(kwargs)
+        return MemoryPreflightResult(
+            query=query,
+            project_id="project-1",
+            workspace_id="workspace-1",
+            repo_root=str(kwargs["repo_root"]),
+            memory_decision=kwargs["memory_decision"],
+            lookup_required=True,
+            lookup_ran=True,
+            memory_evidence_ready=False,
+            warnings=["MEMORY_PREFLIGHT_NO_ALLOWED_EVIDENCE"],
+        )
+
+    monkeypatch.setattr("codex_hermes_supervisor.cli.load_config", lambda: object())
+    monkeypatch.setattr("codex_hermes_supervisor.cli.memory_preflight", _fake_preflight)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "memory-preflight",
+            "official llm wiki",
+            "--repo",
+            str(tmp_path),
+            "--memory-decision",
+            "deep_wiki_read",
+            "--timeout-seconds",
+            "7",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["memory_decision"] == "deep_wiki_read"
+    assert payload["lookup_ran"] is True
+    assert seen["query"] == "official llm wiki"
+    assert seen["timeout_seconds"] == 7
+
+
 def test_qmd_eval_returns_nonzero_when_gate_fails(monkeypatch, tmp_path) -> None:
     from codex_hermes_supervisor.services.qmd_eval import QmdEvalReport
 

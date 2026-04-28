@@ -36,6 +36,7 @@ def test_stdio_mcp_protocol_initialize_and_list_tools() -> None:
                     assert "harness_finish" in tool_names
                     assert "harness_write_version" in tool_names
                     assert "memory_lookup" in tool_names
-                    assert len(tool_names) == 12
+                    assert "memory_preflight" in tool_names
+                    assert len(tool_names) == 13
 
     anyio.run(_main)

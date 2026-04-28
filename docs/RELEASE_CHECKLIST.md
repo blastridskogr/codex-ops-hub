@@ -41,7 +41,17 @@ $docPaths = @(".\README.md", ".\THIRD_PARTY_NOTICES.md") +
   (Get-ChildItem .\docs\*.md | Where-Object { $_.Name -ne "RELEASE_CHECKLIST.md" }).FullName
 
 Select-String -Path $docPaths -Pattern `
-  "LLM Wiki Lite is the standard|LLM Wiki Lite protocol|memories = true|automatic destructive rollback|automatic revert|task-level rollback|--repo\s+--dry-run|Projects//|Tasks//"
+  (@(
+    ("LLM Wiki Lite is the " + "standard"),
+    ("LLM Wiki Lite " + "protocol"),
+    ("memories " + "= true"),
+    ("automatic destructive " + "rollback"),
+    ("automatic " + "revert"),
+    ("task-level " + "rollback"),
+    "--repo\s+--dry-run",
+    ("Projects/" + "/"),
+    ("Tasks/" + "/")
+  ) -join "|")
 ```
 
 Expected: no hits.
