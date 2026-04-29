@@ -102,6 +102,8 @@ metadata before any compiled wiki write:
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-status --repo "[project-root]"
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest --repo "[project-root]" --path "." --source-type directory --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest --repo "[project-root]" --path "." --source-type directory --apply
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest-directory --repo "[project-root]" --path "." --recursive --dry-run
+.\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest-directory --repo "[project-root]" --path "." --recursive --apply
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest --repo "[project-root]" --path "README.md" --dry-run
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-ingest --repo "[project-root]" --path "README.md" --apply
 .\.venv\Scripts\python.exe -m codex_hermes_supervisor.cli source-review --repo "[project-root]" --source-id "[source-id]" --dry-run
@@ -119,7 +121,10 @@ Current limits:
 
 - Directory registration is active as manifest-only provenance. It does not
   enumerate, copy, summarize, or compile every file in the directory.
-- Bulk repo file ingest is not active.
+- Bulk repo file ingest is active as manifest-only source registration through
+  `source-ingest-directory`. It hashes files and records metadata; it does not
+  copy raw file contents into Hermes or Obsidian and does not promote file
+  claims as verified knowledge.
 - Codex session ingest is active for `~/.codex/sessions` and
   `~/.codex/archived_sessions`; it registers transcript metadata as private
   `conversation` raw sources grouped by session `cwd`.

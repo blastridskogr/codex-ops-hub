@@ -6,6 +6,7 @@ import hashlib
 import json
 import mimetypes
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 import yaml
@@ -22,6 +23,8 @@ from codex_hermes_supervisor.schemas.project_memory import (
     CodexSessionIngestReport,
     ReviewStatus,
     SourceCompileResult,
+    SourceDirectoryIngestItem,
+    SourceDirectoryIngestReport,
     SourceIngestResult,
     SourceManifest,
     SourceManifestEntry,
@@ -38,6 +41,57 @@ from codex_hermes_supervisor.schemas.project_memory import (
 _REVIEW_REQUIRED_PRIVACY = {"private", "customer", "secret", "restricted"}
 _LIGHTWEIGHT_SOURCE_TYPES = {"directory", "repo_text", "manual", "conversation", "terminal_log"}
 _MAX_LIGHTWEIGHT_SOURCE_SIZE = 2 * 1024 * 1024
+_DEFAULT_BULK_MAX_FILE_SIZE = 25 * 1024 * 1024
+_DEFAULT_BULK_EXCLUDED_DIRS = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    "venv",
+    "env",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".cache",
+    ".next",
+    "dist",
+    "build",
+    "target",
+    "bin",
+    "obj",
+}
+_DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".rtf"}
+_SPREADSHEET_EXTENSIONS = {".xls", ".xlsx", ".csv", ".tsv"}
+_PRESENTATION_EXTENSIONS = {".ppt", ".pptx"}
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".svg"}
+_ARCHIVE_EXTENSIONS = {".zip", ".7z", ".rar", ".tar", ".gz", ".bz2", ".xz"}
+_TERMINAL_LOG_EXTENSIONS = {".log", ".out", ".err"}
+_TEXT_EXTENSIONS = {
+    ".md",
+    ".txt",
+    ".json",
+    ".jsonl",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".py",
+    ".ps1",
+    ".bat",
+    ".cmd",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".cs",
+    ".xml",
+    ".html",
+    ".css",
+    ".sql",
+}
 _SESSION_ID_RE = re.compile(r"(019[0-9a-f]{5,}-[0-9a-f-]{20,})", re.IGNORECASE)
 _PROMOTION_DIRS: dict[SourcePromoteKind, str] = {
     "project": "Projects",
@@ -102,6 +156,30 @@ def _source_id_from_hash(sha256: str) -> str:
 def _source_id_from_directory_path(path: Path) -> str:
     normalized = normalize_windows_path(path)
     return f"dir-{hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:12]}"
+
+
+def _source_id_from_file_path(path: Path) -> str:
+    normalized = normalize_windows_path(path)
+    return f"file-{hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:12]}"
+
+
+def _source_type_for_path(path: Path) -> SourceType:
+    suffix = path.suffix.lower()
+    if suffix in _DOCUMENT_EXTENSIONS:
+        return "document"
+    if suffix in _SPREADSHEET_EXTENSIONS:
+        return "spreadsheet"
+    if suffix in _PRESENTATION_EXTENSIONS:
+        return "presentation"
+    if suffix in _IMAGE_EXTENSIONS:
+        return "image"
+    if suffix in _ARCHIVE_EXTENSIONS:
+        return "archive"
+    if suffix in _TERMINAL_LOG_EXTENSIONS:
+        return "terminal_log"
+    if suffix in _TEXT_EXTENSIONS:
+        return "repo_text"
+    return "other"
 
 
 def _source_id_from_session_id(session_id: str, fallback_sha256: str) -> str:
@@ -709,6 +787,196 @@ def source_ingest(
         created=created and not dry_run,
         updated=updated and not dry_run,
         entry=entry,
+        warnings=warnings,
+    )
+
+
+def _iter_directory_sources(
+    source_root: Path,
+    *,
+    recursive: bool,
+    excluded_dirs: set[str],
+) -> Iterator[Path]:
+    if recursive:
+        stack = [source_root]
+        while stack:
+            current = stack.pop()
+            try:
+                children = sorted(current.iterdir(), key=lambda item: item.name.lower(), reverse=True)
+            except OSError:
+                continue
+            for child in children:
+                if child.is_dir():
+                    if child.name in excluded_dirs or child.is_symlink():
+                        continue
+                    stack.append(child)
+                elif child.is_file():
+                    yield child
+    else:
+        try:
+            children = sorted(source_root.iterdir(), key=lambda item: item.name.lower())
+        except OSError:
+            return
+        for child in children:
+            if child.is_file():
+                yield child
+
+
+def source_ingest_directory(
+    repo_root: Path,
+    source_path: Path,
+    *,
+    privacy: SourcePrivacy = "private",
+    scope: SourceScope = "project",
+    recursive: bool = True,
+    dry_run: bool = True,
+    max_files: int = 5000,
+    max_file_size_bytes: int = _DEFAULT_BULK_MAX_FILE_SIZE,
+    notes: str = "",
+) -> SourceDirectoryIngestReport:
+    """Register files under a project folder as Official LLM Wiki raw sources.
+
+    This is manifest-only source intake. It hashes files and records metadata,
+    but never copies raw file contents into Hermes or Obsidian.
+    """
+
+    identity = build_identity(repo_root)
+    repo_root = Path(identity.repo_root)
+    source_root = _resolve_repo_source(repo_root, source_path)
+    if not source_root.is_dir():
+        raise NotADirectoryError(f"Directory source ingest requires a directory: {source_root}")
+
+    manifest = _load_source_manifest(identity.project_id)
+    existing_by_id = {entry.source_id: (index, entry) for index, entry in enumerate(manifest.entries)}
+    items: list[SourceDirectoryIngestItem] = []
+    warnings: list[str] = []
+    created = 0
+    updated = 0
+    unchanged = 0
+    skipped = 0
+    total_size = 0
+    scanned = 0
+    review_status: ReviewStatus = "pending" if privacy in _REVIEW_REQUIRED_PRIVACY else "not_required"
+    redaction_status = "pending" if privacy in _REVIEW_REQUIRED_PRIVACY else "not_required"
+    source_owner = "customer" if privacy == "customer" else "project"
+
+    for file_path in _iter_directory_sources(source_root, recursive=recursive, excluded_dirs=set(_DEFAULT_BULK_EXCLUDED_DIRS)):
+        scanned += 1
+        if scanned > max_files:
+            skipped += 1
+            warnings.append("SOURCE_DIRECTORY_MAX_FILES_REACHED")
+            break
+        try:
+            stat = file_path.stat()
+        except OSError as exc:
+            skipped += 1
+            items.append(
+                SourceDirectoryIngestItem(
+                    source_uri=normalize_windows_path(file_path),
+                    action="skipped",
+                    warning=f"SOURCE_FILE_STAT_FAILED: {exc}",
+                )
+            )
+            continue
+        if stat.st_size > max_file_size_bytes:
+            skipped += 1
+            items.append(
+                SourceDirectoryIngestItem(
+                    source_uri=normalize_windows_path(file_path),
+                    size_bytes=stat.st_size,
+                    action="skipped",
+                    warning="SOURCE_FILE_EXCEEDS_DIRECTORY_INGEST_SIZE_LIMIT",
+                )
+            )
+            continue
+        try:
+            sha256 = _sha256_file(file_path)
+        except OSError as exc:
+            skipped += 1
+            items.append(
+                SourceDirectoryIngestItem(
+                    source_uri=normalize_windows_path(file_path),
+                    size_bytes=stat.st_size,
+                    action="skipped",
+                    warning=f"SOURCE_FILE_HASH_FAILED: {exc}",
+                )
+            )
+            continue
+        source_type = _source_type_for_path(file_path)
+        source_id = _source_id_from_file_path(file_path)
+        content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+        source_uri = normalize_windows_path(file_path)
+        entry = SourceManifestEntry(
+            source_id=source_id,
+            source_type=source_type,
+            content_type=content_type,
+            source_uri=source_uri,
+            raw_storage_uri=source_uri,
+            original_name=file_path.name,
+            source_title=file_path.stem,
+            source_accessed_at=now_local_iso(),
+            project_id=identity.project_id if scope == "project" else None,
+            workspace_id=identity.workspace_id if scope in {"project", "workspace"} else None,
+            repo_root=identity.repo_root,
+            scope=scope,
+            source_scope_reason=f"directory bulk source intake from {normalize_windows_path(source_root)}",
+            sha256=sha256,
+            size_bytes=stat.st_size,
+            privacy=privacy,
+            source_owner=source_owner,
+            extractor="source-ingest-directory",
+            extractor_version="1",
+            extraction_status="not_started" if source_type in _LIGHTWEIGHT_SOURCE_TYPES else "not_supported",
+            redaction_status=redaction_status,
+            review_status=review_status,
+            retention_policy="preserve raw file in project folder; manifest records metadata only",
+            status="raw",
+            notes=notes,
+        )
+        existing = existing_by_id.get(source_id)
+        action = "created"
+        if existing is None:
+            created += 1
+            if not dry_run:
+                manifest.entries.append(entry)
+        else:
+            index, existing_entry = existing
+            if existing_entry.sha256 == sha256 and existing_entry.source_uri == source_uri:
+                unchanged += 1
+                action = "unchanged"
+            else:
+                updated += 1
+                action = "updated"
+                if not dry_run:
+                    manifest.entries[index] = entry
+        total_size += stat.st_size
+        items.append(
+            SourceDirectoryIngestItem(
+                source_id=source_id,
+                source_uri=source_uri,
+                source_type=source_type,
+                size_bytes=stat.st_size,
+                action=action,  # type: ignore[arg-type]
+            )
+        )
+
+    if not dry_run:
+        _save_source_manifest(identity.project_id, manifest)
+
+    return SourceDirectoryIngestReport(
+        project_id=identity.project_id,
+        workspace_id=identity.workspace_id,
+        repo_root=identity.repo_root,
+        manifest_path=normalize_windows_path(_source_manifest_path(identity.project_id)),
+        source_root=normalize_windows_path(source_root),
+        dry_run=dry_run,
+        scanned_files=scanned,
+        created=created if not dry_run else 0,
+        updated=updated if not dry_run else 0,
+        unchanged=unchanged,
+        skipped=skipped,
+        total_size_bytes=total_size,
+        items=items[:200],
         warnings=warnings,
     )
 

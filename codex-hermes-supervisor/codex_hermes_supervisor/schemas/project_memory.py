@@ -121,6 +121,32 @@ class SourceIngestResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class SourceDirectoryIngestItem(BaseModel):
+    source_id: str | None = None
+    source_uri: str
+    source_type: SourceType | None = None
+    size_bytes: int = 0
+    action: Literal["created", "updated", "unchanged", "skipped"]
+    warning: str | None = None
+
+
+class SourceDirectoryIngestReport(BaseModel):
+    project_id: str
+    workspace_id: str
+    repo_root: str
+    manifest_path: str
+    source_root: str
+    dry_run: bool = True
+    scanned_files: int = 0
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    skipped: int = 0
+    total_size_bytes: int = 0
+    items: list[SourceDirectoryIngestItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class CodexSessionIngestProjectSummary(BaseModel):
     project_id: str
     workspace_id: str

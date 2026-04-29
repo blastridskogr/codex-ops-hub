@@ -11,6 +11,7 @@ from codex_hermes_supervisor.services.source_intake import (
     codex_session_ingest,
     source_compile,
     source_ingest,
+    source_ingest_directory,
     source_promote,
     source_review,
     source_status,
@@ -91,6 +92,25 @@ def test_source_ingest_registers_directory_manifest_only(tmp_path: Path, monkeyp
     assert result.entry.size_bytes == 0
     assert "DIRECTORY_SOURCE_REGISTERED_MANIFEST_ONLY" in result.warnings
     assert status.total_entries == 1
+
+
+def test_source_ingest_directory_registers_files_manifest_only(tmp_path: Path, monkeypatch) -> None:
+    _patch_home(tmp_path, monkeypatch)
+    repo = _init_repo(tmp_path)
+    (repo / "notes").mkdir()
+    (repo / "notes" / "decision.md").write_text("# decision\n", encoding="utf-8")
+    (repo / ".git" / "ignored.txt").write_text("ignored\n", encoding="utf-8")
+
+    result = source_ingest_directory(repo, Path("."), dry_run=False, max_files=10)
+    status = source_status(repo)
+
+    assert result.dry_run is False
+    assert result.scanned_files == 2
+    assert result.created == 2
+    assert result.skipped == 0
+    assert status.total_entries == 2
+    assert all(item.action == "created" for item in result.items)
+    assert all(".git" not in item.source_uri for item in result.items)
 
 
 def test_private_source_compile_requires_review(tmp_path: Path, monkeypatch) -> None:

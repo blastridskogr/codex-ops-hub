@@ -31,12 +31,14 @@
 - Manifest-only project directory registration through `source-ingest --path .`
   for linking conversation sources to their workspace folders without copying
   raw project contents.
+- Bulk project file source registration through `source-ingest-directory`
+  without copying raw file contents into Hermes or Obsidian.
 - `source-promote` for reviewed source notes with operator-supplied summaries.
 
 ## Next
 
-- Lightweight source compile apply for reviewed repo text, Markdown, reviewed
-  logs, and reviewed conversations.
+- Lightweight source compile apply for selected reviewed repo text, Markdown,
+  reviewed logs, and reviewed conversations.
 - Cross-project candidate/import/promote workflow.
 - Source governance doctor.
 - Synthetic cross-project validation.

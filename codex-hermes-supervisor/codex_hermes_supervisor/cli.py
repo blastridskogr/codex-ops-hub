@@ -53,6 +53,7 @@ from codex_hermes_supervisor.services.source_intake import (
     codex_session_ingest,
     source_compile,
     source_ingest,
+    source_ingest_directory,
     source_promote,
     source_review,
     source_status,
@@ -462,6 +463,37 @@ def source_ingest_command(
         privacy=privacy,  # type: ignore[arg-type]
         scope=scope,  # type: ignore[arg-type]
         dry_run=dry_run,
+        notes=notes,
+    )
+    typer.echo(json.dumps(result.model_dump(), indent=2))
+
+
+@app.command(name="source-ingest-directory")
+def source_ingest_directory_command(
+    repo: str = typer.Option(..., "--repo"),
+    path: str = typer.Option(".", "--path"),
+    privacy: str = typer.Option("private", "--privacy"),
+    scope: str = typer.Option("project", "--scope"),
+    recursive: bool = typer.Option(True, "--recursive/--no-recursive"),
+    max_files: int = typer.Option(5000, "--max-files"),
+    max_file_size_bytes: int = typer.Option(25 * 1024 * 1024, "--max-file-size-bytes"),
+    notes: str = typer.Option("", "--notes"),
+    dry_run: bool = typer.Option(True, "--dry-run/--apply"),
+) -> None:
+    """Bulk-register files under a directory as raw LLM Wiki sources.
+
+    This is manifest-only. It hashes files and records provenance metadata; it
+    never copies raw file contents into Hermes or Obsidian.
+    """
+    result = source_ingest_directory(
+        Path(repo),
+        Path(path),
+        privacy=privacy,  # type: ignore[arg-type]
+        scope=scope,  # type: ignore[arg-type]
+        recursive=recursive,
+        dry_run=dry_run,
+        max_files=max_files,
+        max_file_size_bytes=max_file_size_bytes,
         notes=notes,
     )
     typer.echo(json.dumps(result.model_dump(), indent=2))
